@@ -22,6 +22,15 @@ export class FavoriteState {
   ============================================================ */
   private getUserId(): string {
     try {
+      // Prefer NGXS persisted auth state (key: 'auth')
+      const ngxsAuth = localStorage.getItem('auth');
+      if (ngxsAuth) {
+        const parsed = JSON.parse(ngxsAuth);
+        const user = parsed?.user;
+        return user?.id?.toString() || 'guest';
+      }
+
+      // Fallback to legacy key used previously
       const auth = JSON.parse(localStorage.getItem('auth_user') || '{}');
       return auth?.id?.toString() || 'guest';
     } catch {

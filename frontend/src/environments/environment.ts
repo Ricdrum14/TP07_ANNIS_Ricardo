@@ -1,5 +1,6 @@
 export const environment = {
     production: false,
-    backendPollution : '/assets/mock/pollution.json',
-    backendUtilisateur: '/assets/mock/utilisateur.json'
+    backendPollution : 'http://localhost:3000/api/pollutions',
+    backendUtilisateur: 'http://localhost:3000/api/utilisateurs',
+    backendAuth: 'http://localhost:3000/api/auth'
   };

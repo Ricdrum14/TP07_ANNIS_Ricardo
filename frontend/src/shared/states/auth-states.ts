@@ -65,8 +65,10 @@ export class AuthState {
     patchState({ isLoading: true, error: null });
 
     return this.utilisateurService.login(payload.email, payload.password).pipe(
-      tap((user) => {
-        const token = `token_${user.id}_${Date.now()}`;
+      tap((response: any) => {
+        // 🔹 Récupère le token JWT retourné par le backend
+        const token = response.token;
+        const user = response.user || response;
 
         patchState({
           isConnected: true,
@@ -75,10 +77,7 @@ export class AuthState {
           isLoading: false,
           error: null
         });
-
-        // Stocker auth_user & token
-        localStorage.setItem("auth_user", JSON.stringify(user));
-        localStorage.setItem("auth_token", token);
+        // 📦 NgxsStoragePlugin persiste automatiquement le state 'auth'
       }),
       catchError(err => {
         patchState({
@@ -101,11 +100,7 @@ export class AuthState {
 
     // Nettoyer favoris du user courant
     ctx.dispatch(new ClearFavorites());
-
-    // Nettoyer auth
-    localStorage.removeItem('auth_user');
-    localStorage.removeItem('auth_token');
-
+    // Nettoyer auth state (NgxsStoragePlugin persiste/restaure automatiquement)
     ctx.patchState({
       isConnected: false,
       user: null,
@@ -120,24 +115,24 @@ export class AuthState {
   // =======================
   @Action(LoadAuthFromStorage)
   loadAuth({ patchState }: StateContext<AuthStateModel>) {
-
-    const token = localStorage.getItem('auth_token');
-    const userJson = localStorage.getItem('auth_user');
-
-    if (token && userJson) {
-      try {
-        const user = JSON.parse(userJson);
-        patchState({
-          isConnected: true,
-          user,
-          token,
-          isLoading: false,
-          error: null
-        });
-      } catch {
-        localStorage.removeItem('auth_user');
-        localStorage.removeItem('auth_token');
+    // NgxsStoragePlugin restaure automatiquement le state 'auth' depuis le localStorage.
+    // Cette action s'exécute au démarrage pour charger le token persisté.
+    try {
+      const raw = localStorage.getItem('auth');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.token && parsed?.user) {
+          patchState({
+            isConnected: true,
+            user: parsed.user,
+            token: parsed.token,
+            error: null,
+            isLoading: false
+          });
+        }
       }
+    } catch (e) {
+      console.error('Failed to load auth from storage:', e);
     }
   }
 }

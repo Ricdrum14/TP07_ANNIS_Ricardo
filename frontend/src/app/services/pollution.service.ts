@@ -10,7 +10,7 @@ import { environment } from '../../environments/environment';
 })
 export class PollutionService {
   private apiUrl = environment.backendPollution;
-  private isMock = !environment.production;
+  private isMock = environment.backendPollution.includes('/assets/mock');
 
   private localPollutions: Pollution[] = [];
   private pollutionsSubject = new BehaviorSubject<Pollution[]>([]);

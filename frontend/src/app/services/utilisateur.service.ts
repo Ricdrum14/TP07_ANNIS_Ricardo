@@ -10,13 +10,13 @@ import { environment } from '../../environments/environment';
 })
 export class UtilisateurService {
   private apiUrl = environment.backendUtilisateur;
-  private isMock = !environment.production;
+  private isMock = environment.backendUtilisateur.includes('/assets/mock');
 
   private localUsers: Utilisateur[] = [];
   private usersSubject = new BehaviorSubject<Utilisateur[]>([]);
   users$ = this.usersSubject.asObservable();
 
-  private currentUserSubject = new BehaviorSubject<Utilisateur | null>(this.loadUserFromLocalStorage());
+  private currentUserSubject = new BehaviorSubject<Utilisateur | null>(null);
   currentUser$ = this.currentUserSubject.asObservable();
 
   constructor(private http: HttpClient) {}
@@ -31,18 +31,8 @@ export class UtilisateurService {
     return throwError(() => new Error(errMsg));
   }
 
-  private saveUserToLocalStorage(user: Utilisateur) {
-    localStorage.setItem('currentUser', JSON.stringify(user));
-  }
-
-  private loadUserFromLocalStorage(): Utilisateur | null {
-    const data = localStorage.getItem('currentUser');
-    return data ? JSON.parse(data) : null;
-  }
-
-  private clearLocalStorage() {
-    localStorage.removeItem('currentUser');
-  }
+  // NOTE: Persistence is handled by NGXS (NgxsStoragePlugin). We keep a
+  // `currentUserSubject` for in-memory updates but avoid manual localStorage writes.
 
   // ====================================================
   // 👥 CRUD UTILISATEURS
@@ -74,11 +64,10 @@ export class UtilisateurService {
 updateUtilisateur(id: number, data: { email?: string; mot_de_passe?: string }): Observable<Utilisateur> {
   return this.http.put<Utilisateur>(`${this.apiUrl}/${id}`, data).pipe(
     tap(updated => {
-      // Si l'utilisateur courant se met à jour, on met à jour le localStorage
+      // Si l'utilisateur courant se met à jour, on met à jour le subject en mémoire
       const current = this.getCurrentUser();
       if (current && current.id === id) {
         const updatedUser = { ...current, ...updated };
-        this.saveUserToLocalStorage(updatedUser);
         this.currentUserSubject.next(updatedUser);
       }
     }),
@@ -122,7 +111,7 @@ deleteUtilisateur(id: number): Observable<any> {
             role: 'utilisateur',
             date_creation: new Date()
           };
-          localStorage.setItem('currentUser', JSON.stringify(newUser));
+          this.currentUserSubject.next(newUser);
           return newUser;
         }),
         tap(user => {
@@ -136,21 +125,21 @@ deleteUtilisateur(id: number): Observable<any> {
     const authUrl = `${this.apiUrl.replace('/utilisateurs', '')}/auth/register`;
     return this.http.post<any>(authUrl, data).pipe(
       tap(user => {
-        this.saveUserToLocalStorage(user);
+        // Mettre à jour le subject local ; NGXS AuthState sauvera l'auth dans localStorage
+        this.currentUserSubject.next(user);
       }),
       catchError(error => this.handleError(error, 'Erreur lors de l’inscription (API).'))
     );
   }
 
   /** 🔑 Connexion */
-  login(email: string, mot_de_passe: string): Observable<Utilisateur> {
+  login(email: string, mot_de_passe: string): Observable<any> {
     if (this.isMock) {
       // Mode DEV → lecture du JSON
       return this.http.get<Utilisateur[]>(this.apiUrl).pipe(
         map(users => {
           const user = users.find(u => u.email === email && (u as any).mot_de_passe === mot_de_passe);
           if (!user) throw new Error('Utilisateur introuvable ou mot de passe incorrect.');
-          this.saveUserToLocalStorage(user);
           this.currentUserSubject.next(user);
           return user;
         }),
@@ -162,8 +151,10 @@ deleteUtilisateur(id: number): Observable<any> {
     // Mode PROD → appel API réelle
     const authUrl = `${this.apiUrl.replace('/utilisateurs', '')}/auth/login`;
     return this.http.post<any>(authUrl, { email, mot_de_passe }).pipe(
-      tap(user => {
-        this.saveUserToLocalStorage(user);
+      tap(response => {
+        // 🔹 response contient { token, user }
+        const user = response.user || response;
+        // Mettre à jour le subject local ; NGXS AuthState sauvera l'auth dans localStorage
         this.currentUserSubject.next(user);
       }),
       catchError(error => this.handleError(error, 'Erreur lors de la connexion (API).'))
@@ -172,7 +163,7 @@ deleteUtilisateur(id: number): Observable<any> {
 
   /** 🚪 Déconnexion */
   logout() {
-    this.clearLocalStorage();
+    // Ne pas toucher au localStorage manuellement — NGXS gère la persistence.
     this.currentUserSubject.next(null);
   }
 
