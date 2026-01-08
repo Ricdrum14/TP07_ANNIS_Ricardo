@@ -77,7 +77,14 @@ export class AuthState {
           isLoading: false,
           error: null
         });
-        // 📦 NgxsStoragePlugin persiste automatiquement le state 'auth'
+        // 📦 Sauvegarde IMMÉDIATEMENT dans localStorage (ne pas attendre NgxsStoragePlugin)
+        localStorage.setItem('auth', JSON.stringify({
+          isConnected: true,
+          user,
+          token,
+          error: null,
+          isLoading: false
+        }));
       }),
       catchError(err => {
         patchState({
@@ -100,7 +107,7 @@ export class AuthState {
 
     // Nettoyer favoris du user courant
     ctx.dispatch(new ClearFavorites());
-    // Nettoyer auth state (NgxsStoragePlugin persiste/restaure automatiquement)
+    // Nettoyer auth state
     ctx.patchState({
       isConnected: false,
       user: null,
@@ -108,6 +115,8 @@ export class AuthState {
       error: null,
       isLoading: false
     });
+    // 📦 Nettoyer localStorage aussi
+    localStorage.removeItem('auth');
   }
 
   // =======================
