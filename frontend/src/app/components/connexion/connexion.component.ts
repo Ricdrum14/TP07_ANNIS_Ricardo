@@ -1,10 +1,10 @@
-import { Component, inject, Signal, OnInit } from '@angular/core';
+import { Component, inject, Signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Store } from '@ngxs/store';
 import { AuthState } from '../../../shared/states/auth-states';
-import { Logout, LoadAuthFromStorage } from '../../../actions/auth-actions';
+import { Logout } from '../../../actions/auth-actions';
 import { Utilisateur } from '../../models/utilisateur';
 
 @Component({
@@ -14,7 +14,7 @@ import { Utilisateur } from '../../models/utilisateur';
   templateUrl: './connexion.component.html',
   styleUrl: './connexion.component.css'
 })
-export class ConnexionComponent implements OnInit {
+export class ConnexionComponent {
 
   private store = inject(Store);
 
@@ -41,11 +41,6 @@ export class ConnexionComponent implements OnInit {
     { initialValue: null }
   );
 
-  ngOnInit() {
-    // 📦 Charger l'authentification depuis le localStorage au démarrage
-    this.store.dispatch(new LoadAuthFromStorage());
-  }
-
   toggleMenu() {
     this.isMenuOpen = !this.isMenuOpen;
   }
@@ -56,4 +51,3 @@ export class ConnexionComponent implements OnInit {
     this.isMenuOpen = false;
   }
 }
-

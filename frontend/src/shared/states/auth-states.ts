@@ -1,17 +1,11 @@
-import { Injectable } from "@angular/core";
-import { State, Action, StateContext, Selector } from "@ngxs/store";
-import { AuthStateModel } from "./auth-states-model";
-import {
-  Login,
-  LoginSuccess,
-  LoginFailure,
-  Logout,
-  LoadAuthFromStorage
-} from "../../actions/auth-actions";
-import { UtilisateurService } from "../../app/services/utilisateur.service";
-import { tap, catchError } from "rxjs/operators";
-import { of } from "rxjs";
-import { ClearFavorites } from "../../actions/favorite-actions";
+import { Injectable } from '@angular/core';
+import { State, Action, StateContext, Selector } from '@ngxs/store';
+import { AuthStateModel } from './auth-states-model';
+import { Login, Logout } from '../../actions/auth-actions';
+import { UtilisateurService } from '../../app/services/utilisateur.service';
+import { tap, catchError } from 'rxjs/operators';
+import { of } from 'rxjs';
+import { ClearFavorites } from '../../actions/favorite-actions';
 
 @State<AuthStateModel>({
   name: 'auth',
@@ -60,39 +54,29 @@ export class AuthState {
   // LOGIN
   // =======================
   @Action(Login)
-  login({ patchState }: StateContext<AuthStateModel>, { payload }: Login) {
-
-    patchState({ isLoading: true, error: null });
+  login(ctx: StateContext<AuthStateModel>, { payload }: Login) {
+    ctx.patchState({ isLoading: true, error: null });
 
     return this.utilisateurService.login(payload.email, payload.password).pipe(
       tap((response: any) => {
-        // 🔹 Récupère le token JWT retourné par le backend
-        const token = response.token;
-        const user = response.user || response;
+        const token = response.accessToken ?? response.token;
+        const user = response.user ?? response;
 
-        patchState({
+        ctx.patchState({
           isConnected: true,
           user,
           token,
           isLoading: false,
           error: null
         });
-        // 📦 Sauvegarde IMMÉDIATEMENT dans localStorage (ne pas attendre NgxsStoragePlugin)
-        localStorage.setItem('auth', JSON.stringify({
-          isConnected: true,
-          user,
-          token,
-          error: null,
-          isLoading: false
-        }));
       }),
       catchError(err => {
-        patchState({
+        ctx.patchState({
           isConnected: false,
           user: null,
           token: null,
           isLoading: false,
-          error: err.message || 'Erreur de connexion'
+          error: err?.error?.message || 'Erreur de connexion'
         });
         return of(null);
       })
@@ -104,44 +88,15 @@ export class AuthState {
   // =======================
   @Action(Logout)
   logout(ctx: StateContext<AuthStateModel>) {
-
-    // Nettoyer favoris du user courant
     ctx.dispatch(new ClearFavorites());
-    // Nettoyer auth state
-    ctx.patchState({
+
+    // ✅ reset du state → NGXS Storage écrase automatiquement le storage
+    ctx.setState({
       isConnected: false,
       user: null,
       token: null,
       error: null,
       isLoading: false
     });
-    // 📦 Nettoyer localStorage aussi
-    localStorage.removeItem('auth');
-  }
-
-  // =======================
-  // LOAD AUTH FROM STORAGE
-  // =======================
-  @Action(LoadAuthFromStorage)
-  loadAuth({ patchState }: StateContext<AuthStateModel>) {
-    // NgxsStoragePlugin restaure automatiquement le state 'auth' depuis le localStorage.
-    // Cette action s'exécute au démarrage pour charger le token persisté.
-    try {
-      const raw = localStorage.getItem('auth');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.token && parsed?.user) {
-          patchState({
-            isConnected: true,
-            user: parsed.user,
-            token: parsed.token,
-            error: null,
-            isLoading: false
-          });
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load auth from storage:', e);
-    }
   }
 }

@@ -4,6 +4,8 @@ import { BehaviorSubject, Observable, of, throwError } from 'rxjs';
 import { map, tap, catchError } from 'rxjs/operators';
 import { Pollution } from '../models/pollution';
 import { environment } from '../../environments/environment';
+import { Store } from '@ngxs/store';
+import { AuthState } from '../../shared/states/auth-states';
 
 @Injectable({
   providedIn: 'root'
@@ -16,7 +18,10 @@ export class PollutionService {
   private pollutionsSubject = new BehaviorSubject<Pollution[]>([]);
   pollutions$ = this.pollutionsSubject.asObservable();
 
-  constructor(private http: HttpClient) {}
+  constructor(
+    private http: HttpClient,
+    private store: Store
+  ) {}
 
   private handleError(error: HttpErrorResponse, message: string): Observable<never> {
     console.error('Une erreur s\'est produite:', error);
@@ -25,6 +30,17 @@ export class PollutionService {
 
   /** 🔹 Récupère toutes les pollutions */
   getPollutions(): Observable<Pollution[]> {
+    // ✅ En mode API réelle : si déconnecté, ne pas appeler l'API (évite 401 après logout)
+    if (!this.isMock) {
+      const isConnected = this.store.selectSnapshot(AuthState.isConnected);
+      if (!isConnected) {
+        // Option 1 : renvoyer vide
+        return of([]);
+        // Option 2 (si tu préfères garder le cache affiché) :
+        // return this.pollutions$;
+      }
+    }
+
     if (this.localPollutions.length === 0) {
       return this.http.get<any[]>(this.apiUrl).pipe(
         map(data => data.map(item => new Pollution(
@@ -36,14 +52,16 @@ export class PollutionService {
           item.latitude,
           item.longitude,
           item.photo_url || item.photo,
-          item.id // 👈 Correction ici (id PostgreSQL)
+          item.id
         ))),
         tap(pollutions => {
           this.localPollutions = pollutions;
           this.pollutionsSubject.next(pollutions);
-        })
+        }),
+        catchError(error => this.handleError(error, 'Impossible de récupérer les pollutions.'))
       );
     }
+
     return this.pollutions$;
   }
 
@@ -75,7 +93,6 @@ export class PollutionService {
 
   /** ➕ Ajoute une pollution */
   addPollution(pollution: Pollution): Observable<Pollution> {
-    // ⚠️ On ne veut pas envoyer un énorme base64 à l’API
     const isBase64 = typeof pollution.photo === 'string' && pollution.photo.startsWith('data:');
 
     const pollutionData = {
@@ -86,14 +103,12 @@ export class PollutionService {
       description: pollution.description,
       latitude: pollution.latitude,
       longitude: pollution.longitude,
-      // 👇 Si c’est du base64, on n’envoie rien pour éviter le 413
       photo_url: isBase64 ? null : pollution.photo
     };
 
     if (this.isMock) {
       this.localPollutions.push(pollution);
       this.pollutionsSubject.next([...this.localPollutions]);
-      console.log('✅ Pollution ajoutée (mock) :', pollution);
       return of(pollution);
     } else {
       return this.http.post<any>(this.apiUrl, pollutionData).pipe(
@@ -119,63 +134,54 @@ export class PollutionService {
   }
 
   /** ✏️ Met à jour une pollution */
-updatePollution(updated: Pollution): Observable<Pollution> {
-  if (this.isMock) {
-    const index = this.localPollutions.findIndex(p => p.id === updated.id);
-    if (index !== -1) this.localPollutions[index] = updated;
-    this.pollutionsSubject.next([...this.localPollutions]);
-    return of(updated);
-  } else {
-    const pollutionData = {
-      titre: updated.titre,
-      lieu: updated.lieu,
-      date_observation: new Date(updated.date).toISOString(),
-      type_pollution: updated.type,
-      description: updated.description,
-      latitude: updated.latitude,
-      longitude: updated.longitude,
-      photo_url:
-        typeof updated.photo === 'string' && updated.photo.startsWith('data:')
-          ? null
-          : updated.photo
-    };
+  updatePollution(updated: Pollution): Observable<Pollution> {
+    if (this.isMock) {
+      const index = this.localPollutions.findIndex(p => p.id === updated.id);
+      if (index !== -1) this.localPollutions[index] = updated;
+      this.pollutionsSubject.next([...this.localPollutions]);
+      return of(updated);
+    } else {
+      const pollutionData = {
+        titre: updated.titre,
+        lieu: updated.lieu,
+        date_observation: new Date(updated.date).toISOString(),
+        type_pollution: updated.type,
+        description: updated.description,
+        latitude: updated.latitude,
+        longitude: updated.longitude,
+        photo_url:
+          typeof updated.photo === 'string' && updated.photo.startsWith('data:')
+            ? null
+            : updated.photo
+      };
 
-    return this.http.put<any>(`${this.apiUrl}/${updated.id}`, pollutionData).pipe(
-      map(response => {
-        // ✅ Vérifie si la pollution est dans response.data
-        const item = response.data || response;
+      return this.http.put<any>(`${this.apiUrl}/${updated.id}`, pollutionData).pipe(
+        map(response => {
+          const item = response.data || response;
 
-        const updatedPollution = new Pollution(
-          item.titre,
-          item.type_pollution || item.type,
-          item.description,
-          new Date(item.date_observation || item.date),
-          item.lieu,
-          item.latitude,
-          item.longitude,
-          item.photo_url || item.photo,
-          item.id
-        );
+          const updatedPollution = new Pollution(
+            item.titre,
+            item.type_pollution || item.type,
+            item.description,
+            new Date(item.date_observation || item.date),
+            item.lieu,
+            item.latitude,
+            item.longitude,
+            item.photo_url || item.photo,
+            item.id
+          );
 
-        // ✅ Met à jour la liste locale immédiatement
-        const index = this.localPollutions.findIndex(p => p.id === updatedPollution.id);
-        if (index !== -1) {
-          this.localPollutions[index] = updatedPollution;
-        } else {
-          this.localPollutions.push(updatedPollution);
-        }
+          const index = this.localPollutions.findIndex(p => p.id === updatedPollution.id);
+          if (index !== -1) this.localPollutions[index] = updatedPollution;
+          else this.localPollutions.push(updatedPollution);
 
-        // ✅ Émet la nouvelle liste (UI instantanément à jour)
-        this.pollutionsSubject.next([...this.localPollutions]);
-        return updatedPollution;
-      }),
-      catchError(error =>
-        this.handleError(error, 'Erreur lors de la mise à jour de la pollution.')
-      )
-    );
+          this.pollutionsSubject.next([...this.localPollutions]);
+          return updatedPollution;
+        }),
+        catchError(error => this.handleError(error, 'Erreur lors de la mise à jour de la pollution.'))
+      );
+    }
   }
-}
-
 
   /** ❌ Supprime une pollution */
   deletePollution(id: string): Observable<any> {
