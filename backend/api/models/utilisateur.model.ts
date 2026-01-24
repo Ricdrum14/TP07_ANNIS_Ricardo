@@ -71,24 +71,23 @@ export default function (sequelize: Sequelize): ModelStatic<UtilisateurInstance>
 
 
   //Hooks de hashage du mot de passe
-  Utilisateur.beforeCreate(async (user) => {
-  // Empêche de re-hasher un mot de passe déjà hashé
-  if (!user.mot_de_passe.startsWith('$2b$')) {
-    user.mot_de_passe = await bcrypt.hash(user.mot_de_passe, 10);
-  }
-});
+  Utilisateur.addHook('beforeCreate', async (user: any) => {
+    // Empêche de re-hasher un mot de passe déjà hashé
+    if (!user.mot_de_passe.startsWith('$2b$')) {
+      user.mot_de_passe = await bcrypt.hash(user.mot_de_passe, 10);
+    }
+  });
 
-
-  Utilisateur.beforeUpdate(async (user) => {
+  Utilisateur.addHook('beforeUpdate', async (user: any) => {
     if (user.changed('mot_de_passe')) {
       user.mot_de_passe = await bcrypt.hash(user.mot_de_passe, 10);
     }
   });
 
   //Méthode personnalisée pour comparer le mot de passe
- (Utilisateur as any).prototype.comparePassword = async function (password: string): Promise<boolean> {
-  return bcrypt.compare(password, (this as any).mot_de_passe);
-};
+  (Utilisateur as any).prototype.comparePassword = async function (password: string): Promise<boolean> {
+    return bcrypt.compare(password, (this as any).mot_de_passe);
+  };
 
 
   return Utilisateur;

@@ -11,10 +11,10 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const store = inject(Store);
   const router = inject(Router);
 
-  // ✅ SOURCE UNIQUE : NGXS STORE
   const token = store.selectSnapshot(AuthState.token);
 
-  if (token) {
+  // ✅ Ne pas envoyer Authorization si pas de token valide
+  if (typeof token === 'string' && token.trim().length > 0) {
     req = req.clone({
       setHeaders: {
         Authorization: `Bearer ${token}`
@@ -24,8 +24,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(req).pipe(
     catchError((error: HttpErrorResponse) => {
-      if (error.status === 401) {
-        console.warn('JWT invalide ou expiré → logout');
+      // ✅ Ton backend renvoie 403 quand token expiré/invalide
+      if (error.status === 401 || error.status === 403) {
+        console.warn('JWT invalide/expiré → logout');
         store.dispatch(new Logout());
         router.navigate(['/login']);
       }

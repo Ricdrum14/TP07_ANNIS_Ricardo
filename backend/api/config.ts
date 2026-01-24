@@ -14,12 +14,15 @@ interface Config {
 const config: Config = {
   ACCESS_TOKEN_SECRET: "EMMA123",
   BDD: {
-    host: "dpg-d41mvg24d50c73eto4vg-a.singapore-postgres.render.com",
+    host: "dpg-d5el6dp5pdvs73fju1sg-a.oregon-postgres.render.com",
     port: "5432",
-    user: "pollution_bpbo_user",
-    password: "2BZl1iWB49PZmtA2ZkYkZCmtI9U4Jcur",
-    bdname: "pollution_bpbo"
+    user: "pollution_o536_user",
+    password: "DJY36Fr9hi2gySAnHO4SvvqFOx90eu99",
+    bdname: "pollution_o536"
   }
+
 };
+
+
 
 export default config;

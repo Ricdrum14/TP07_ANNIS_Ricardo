@@ -6,7 +6,7 @@ import { Store } from '@ngxs/store';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Login } from '../../../actions/auth-actions';
 import { AuthState } from '../../../shared/states/auth-states';
-import { LoadFavoritesFromStorage } from '../../../actions/favorite-actions';
+import { take } from 'rxjs/operators';
 
 @Component({
   selector: 'app-login',
@@ -16,7 +16,6 @@ import { LoadFavoritesFromStorage } from '../../../actions/favorite-actions';
   styleUrls: ['./login.component.css']
 })
 export class LoginComponent implements OnInit {
-
   email = '';
   password = '';
   formSubmitted = false;
@@ -28,21 +27,26 @@ export class LoginComponent implements OnInit {
   redirectUrl: string | null = null;
 
   isLoading: Signal<boolean> = toSignal(
-    this.store.select(AuthState.isLoading), { initialValue: false }
+    this.store.select(AuthState.isLoading),
+    { initialValue: false }
   );
 
   error: Signal<string | null> = toSignal(
-    this.store.select(AuthState.error), { initialValue: null }
+    this.store.select(AuthState.error),
+    { initialValue: null }
   );
 
   isConnected: Signal<boolean> = toSignal(
-    this.store.select(AuthState.isConnected), { initialValue: false }
+    this.store.select(AuthState.isConnected),
+    { initialValue: false }
   );
 
   ngOnInit() {
     this.redirectUrl = this.route.snapshot.queryParamMap.get('redirect');
 
-    if (this.isConnected()) {
+    // ✅ plus fiable que this.isConnected() au tout début
+    const connected = this.store.selectSnapshot(AuthState.isConnected);
+    if (connected) {
       this.router.navigate([this.redirectUrl || '/']);
     }
   }
@@ -61,15 +65,13 @@ export class LoginComponent implements OnInit {
     }
 
     this.store.dispatch(new Login({ email: this.email, password: this.password }))
+      .pipe(take(1))
       .subscribe(() => {
+        // ✅ snapshot = valeur certaine après traitement NGXS
+        const connected = this.store.selectSnapshot(AuthState.isConnected);
 
-        if (this.isConnected()) {
+        if (connected) {
           console.log('Connexion OK ✔');
-
-          // Charger les favoris du bon user
-          this.store.dispatch(new LoadFavoritesFromStorage());
-
-          // Redirection après login
           this.router.navigate([this.redirectUrl || '/']);
         }
       });

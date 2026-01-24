@@ -28,42 +28,41 @@ export class PollutionService {
     return throwError(() => new Error(message));
   }
 
-  /** 🔹 Récupère toutes les pollutions */
+  /** 📋 Récupère toutes les pollutions */
   getPollutions(): Observable<Pollution[]> {
-    // ✅ En mode API réelle : si déconnecté, ne pas appeler l'API (évite 401 après logout)
-    if (!this.isMock) {
-      const isConnected = this.store.selectSnapshot(AuthState.isConnected);
-      if (!isConnected) {
-        // Option 1 : renvoyer vide
-        return of([]);
-        // Option 2 (si tu préfères garder le cache affiché) :
-        // return this.pollutions$;
-      }
-    }
+  if (!this.isMock) {
+    const isConnected = this.store.selectSnapshot(AuthState.isConnected);
 
-    if (this.localPollutions.length === 0) {
-      return this.http.get<any[]>(this.apiUrl).pipe(
-        map(data => data.map(item => new Pollution(
-          item.titre,
-          item.type_pollution || item.type,
-          item.description,
-          new Date(item.date_observation || item.date),
-          item.lieu,
-          item.latitude,
-          item.longitude,
-          item.photo_url || item.photo,
-          item.id
-        ))),
-        tap(pollutions => {
-          this.localPollutions = pollutions;
-          this.pollutionsSubject.next(pollutions);
-        }),
-        catchError(error => this.handleError(error, 'Impossible de récupérer les pollutions.'))
-      );
+    // ✅ si pas connecté : pas d’appel API
+    if (!isConnected) {
+      return of([]); // ou return this.pollutions$ si tu veux garder l'affichage
     }
-
-    return this.pollutions$;
   }
+
+  if (this.localPollutions.length === 0) {
+    return this.http.get<any[]>(this.apiUrl).pipe(
+      map(data => data.map(item => new Pollution(
+        item.titre,
+        item.type_pollution || item.type,
+        item.description,
+        new Date(item.date_observation || item.date),
+        item.lieu,
+        item.latitude,
+        item.longitude,
+        item.photo_url || item.photo,
+        item.id
+      ))),
+      tap(pollutions => {
+        this.localPollutions = pollutions;
+        this.pollutionsSubject.next(pollutions);
+      }),
+      catchError(error => this.handleError(error, 'Impossible de récupérer les pollutions.'))
+    );
+  }
+
+  return this.pollutions$;
+}
+
 
   /** 🔍 Récupère une pollution par ID */
   getPollutionById(id: string): Observable<Pollution> {

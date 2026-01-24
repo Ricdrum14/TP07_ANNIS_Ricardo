@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -28,20 +31,22 @@ app.get('/', (_req: Request, res: Response) => {
   res.json({ message: 'Welcome to CNAM application.' });
 });
 
+// Import routes
+import initializeRoutes from './routes/index';
+
 db.sequelize.sync()
   .then(() => {
     console.log('Synced db.');
+    
+    // Initialise les routes après synchronisation
+    initializeRoutes(app);
+    
+    // Lance le serveur après tout
+    const PORT: number = 3000;
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}.`);
+    });
   })
   .catch((err: Error) => {
     console.log('Failed to sync db: ' + err.message);
   });
-
-// Import routes
-import initializeRoutes from './routes/index';
-initializeRoutes(app);
-
-// set port, listen for requests
-const PORT: number = 443;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}.`);
-});

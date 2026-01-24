@@ -1,9 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.default = default_1;
 const sequelize_1 = require("sequelize");
-function default_1(sequelize) {
-    const Pollution = sequelize.define("pollution", {
+exports.default = (sequelize) => {
+    const Pollution = sequelize.define('pollution', {
         id: {
             type: sequelize_1.DataTypes.INTEGER,
             primaryKey: true,
@@ -27,7 +26,6 @@ function default_1(sequelize) {
             type: sequelize_1.DataTypes.TEXT
         },
         latitude: {
-            // stocke les coordonnées GPS avec 6 décimales
             type: sequelize_1.DataTypes.DECIMAL(9, 6)
         },
         longitude: {
@@ -38,5 +36,4 @@ function default_1(sequelize) {
         }
     });
     return Pollution;
-}
-;
+};

@@ -5,7 +5,7 @@ import { Login, Logout } from '../../actions/auth-actions';
 import { UtilisateurService } from '../../app/services/utilisateur.service';
 import { tap, catchError } from 'rxjs/operators';
 import { of } from 'rxjs';
-import { ClearFavorites } from '../../actions/favorite-actions';
+import { ClearFavoritesForCurrentUser } from '../../actions/favorite-actions';
 
 @State<AuthStateModel>({
   name: 'auth',
@@ -19,7 +19,6 @@ import { ClearFavorites } from '../../actions/favorite-actions';
 })
 @Injectable()
 export class AuthState {
-
   constructor(private utilisateurService: UtilisateurService) {}
 
   // =======================
@@ -59,8 +58,29 @@ export class AuthState {
 
     return this.utilisateurService.login(payload.email, payload.password).pipe(
       tap((response: any) => {
-        const token = response.accessToken ?? response.token;
-        const user = response.user ?? response;
+        // Supporte backend {accessToken,user} ou {token,user}
+        const token = response?.accessToken ?? response?.token ?? null;
+
+        // Supporte backend { token, user } OU backend qui renvoie direct l'user
+        // (si response.user existe => user = response.user, sinon response)
+        const candidateUser = response?.user ?? response ?? null;
+
+        // On vérifie que candidateUser ressemble à un user
+        const user =
+          candidateUser && typeof candidateUser === 'object' && 'id' in candidateUser
+            ? candidateUser
+            : null;
+
+        if (!token || !user) {
+          ctx.patchState({
+            isConnected: false,
+            user: null,
+            token: null,
+            isLoading: false,
+            error: 'Réponse login invalide (token/user manquant)'
+          });
+          return;
+        }
 
         ctx.patchState({
           isConnected: true,
@@ -76,7 +96,7 @@ export class AuthState {
           user: null,
           token: null,
           isLoading: false,
-          error: err?.error?.message || 'Erreur de connexion'
+          error: err?.error?.message || err?.message || 'Erreur de connexion'
         });
         return of(null);
       })
@@ -88,9 +108,9 @@ export class AuthState {
   // =======================
   @Action(Logout)
   logout(ctx: StateContext<AuthStateModel>) {
-    ctx.dispatch(new ClearFavorites());
+    // ✅ vide uniquement les favoris du user courant (guest/userId)
+    ctx.dispatch(new ClearFavoritesForCurrentUser());
 
-    // ✅ reset du state → NGXS Storage écrase automatiquement le storage
     ctx.setState({
       isConnected: false,
       user: null,
