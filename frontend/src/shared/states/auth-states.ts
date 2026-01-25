@@ -5,7 +5,6 @@ import { Login, Logout } from '../../actions/auth-actions';
 import { UtilisateurService } from '../../app/services/utilisateur.service';
 import { tap, catchError } from 'rxjs/operators';
 import { of } from 'rxjs';
-import { ClearFavoritesForCurrentUser } from '../../actions/favorite-actions';
 
 @State<AuthStateModel>({
   name: 'auth',
@@ -21,9 +20,6 @@ import { ClearFavoritesForCurrentUser } from '../../actions/favorite-actions';
 export class AuthState {
   constructor(private utilisateurService: UtilisateurService) {}
 
-  // =======================
-  // SELECTORS
-  // =======================
   @Selector()
   static isConnected(state: AuthStateModel) {
     return state.isConnected;
@@ -49,27 +45,14 @@ export class AuthState {
     return state.error;
   }
 
-  // =======================
-  // LOGIN
-  // =======================
   @Action(Login)
   login(ctx: StateContext<AuthStateModel>, { payload }: Login) {
     ctx.patchState({ isLoading: true, error: null });
 
     return this.utilisateurService.login(payload.email, payload.password).pipe(
       tap((response: any) => {
-        // Supporte backend {accessToken,user} ou {token,user}
-        const token = response?.accessToken ?? response?.token ?? null;
-
-        // Supporte backend { token, user } OU backend qui renvoie direct l'user
-        // (si response.user existe => user = response.user, sinon response)
-        const candidateUser = response?.user ?? response ?? null;
-
-        // On vérifie que candidateUser ressemble à un user
-        const user =
-          candidateUser && typeof candidateUser === 'object' && 'id' in candidateUser
-            ? candidateUser
-            : null;
+        const token = response.accessToken ?? response.token ?? null;
+        const user = response.user ?? null;
 
         if (!token || !user) {
           ctx.patchState({
@@ -103,14 +86,8 @@ export class AuthState {
     );
   }
 
-  // =======================
-  // LOGOUT
-  // =======================
   @Action(Logout)
   logout(ctx: StateContext<AuthStateModel>) {
-    // ✅ vide uniquement les favoris du user courant (guest/userId)
-    ctx.dispatch(new ClearFavoritesForCurrentUser());
-
     ctx.setState({
       isConnected: false,
       user: null,

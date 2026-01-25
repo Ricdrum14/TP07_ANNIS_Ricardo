@@ -1,20 +1,14 @@
 import { Injectable } from '@angular/core';
-import { Action, Selector, State, StateContext, Store } from '@ngxs/store';
+import { Action, State, StateContext, Store, createSelector } from '@ngxs/store';
 import { FavoriteStateModel } from './favorite-state-model';
 import { Pollution } from '../../app/models/pollution';
 import {
   AddFavorite,
   RemoveFavorite,
   ClearFavoritesForCurrentUser,
-  ClearAllFavorites,
-  LoadFavoritesFromStorage
+  ClearAllFavorites
 } from '../../actions/favorite-actions';
 import { AuthState } from './auth-states';
-
-type LegacyFavoriteStateModel = {
-  favorites?: Pollution[]; // ancien format
-  favoritesByUser?: Record<string, Pollution[]>; // nouveau format
-};
 
 @State<FavoriteStateModel>({
   name: 'favorites',
@@ -27,56 +21,38 @@ export class FavoriteState {
   constructor(private store: Store) {}
 
   // -----------------------
-  // Helper: clé utilisateur
+  // Helpers
   // -----------------------
-  private getUserKey(): string {
-    const isConnected = this.store.selectSnapshot(AuthState.isConnected);
-    const user = this.store.selectSnapshot(AuthState.currentUser);
-    return (!isConnected || !user?.id) ? 'guest' : String(user.id);
+  private normalizeId(id: string | number | undefined | null): string {
+    return String(id ?? '');
   }
 
-  // -----------------------
-  // Migration / normalisation
-  // -----------------------
-  private normalizeState(state: any): FavoriteStateModel {
-    const s = (state ?? {}) as LegacyFavoriteStateModel;
-
-    // ✅ Déjà au nouveau format
-    if (s.favoritesByUser && typeof s.favoritesByUser === 'object') {
-      return { favoritesByUser: s.favoritesByUser };
-    }
-
-    // ✅ Ancien format détecté → on le migre vers guest
-    if (Array.isArray(s.favorites)) {
-      return { favoritesByUser: { guest: s.favorites } };
-    }
-
-    // ✅ Fallback safe
-    return { favoritesByUser: {} };
+  private getUserKeyFromStore(): string {
+    const user = this.store.selectSnapshot(AuthState.currentUser);
+    // ✅ si user existe -> clé user.id, sinon guest
+    return user?.id != null ? String(user.id) : 'guest';
   }
 
   // -----------------------
   // ACTIONS
   // -----------------------
-
-  // Optionnel : déclenche une normalisation si besoin (utile si tu appelles depuis login ou app start)
-  @Action(LoadFavoritesFromStorage)
-  loadFavoritesFromStorage(ctx: StateContext<FavoriteStateModel>) {
-    const normalized = this.normalizeState(ctx.getState());
-    ctx.setState(normalized);
-  }
-
   @Action(AddFavorite)
   addFavorite(ctx: StateContext<FavoriteStateModel>, { payload }: AddFavorite) {
-    const normalized = this.normalizeState(ctx.getState());
-    const key = this.getUserKey();
-    const current = normalized.favoritesByUser[key] ?? [];
+    const state = ctx.getState();
 
-    if (current.some(p => p.id === payload.id)) return;
+    // ✅ Si localStorage contient encore l'ancien format, on sécurise
+    const favoritesByUser = state.favoritesByUser ?? {};
 
-    ctx.setState({
+    const key = this.getUserKeyFromStore();
+    const current = favoritesByUser[key] ?? [];
+
+    const payloadId = this.normalizeId((payload as any).id);
+
+    if (current.some(p => this.normalizeId((p as any).id) === payloadId)) return;
+
+    ctx.patchState({
       favoritesByUser: {
-        ...normalized.favoritesByUser,
+        ...favoritesByUser,
         [key]: [...current, payload]
       }
     });
@@ -84,26 +60,32 @@ export class FavoriteState {
 
   @Action(RemoveFavorite)
   removeFavorite(ctx: StateContext<FavoriteStateModel>, { payload }: RemoveFavorite) {
-    const normalized = this.normalizeState(ctx.getState());
-    const key = this.getUserKey();
-    const current = normalized.favoritesByUser[key] ?? [];
+    const state = ctx.getState();
+    const favoritesByUser = state.favoritesByUser ?? {};
 
-    ctx.setState({
+    const key = this.getUserKeyFromStore();
+    const current = favoritesByUser[key] ?? [];
+
+    const idToRemove = this.normalizeId(payload.pollutionId);
+
+    ctx.patchState({
       favoritesByUser: {
-        ...normalized.favoritesByUser,
-        [key]: current.filter(p => p.id !== payload.pollutionId)
+        ...favoritesByUser,
+        [key]: current.filter(p => this.normalizeId((p as any).id) !== idToRemove)
       }
     });
   }
 
   @Action(ClearFavoritesForCurrentUser)
   clearFavoritesForCurrentUser(ctx: StateContext<FavoriteStateModel>) {
-    const normalized = this.normalizeState(ctx.getState());
-    const key = this.getUserKey();
+    const state = ctx.getState();
+    const favoritesByUser = state.favoritesByUser ?? {};
 
-    ctx.setState({
+    const key = this.getUserKeyFromStore();
+
+    ctx.patchState({
       favoritesByUser: {
-        ...normalized.favoritesByUser,
+        ...favoritesByUser,
         [key]: []
       }
     });
@@ -111,30 +93,33 @@ export class FavoriteState {
 
   @Action(ClearAllFavorites)
   clearAllFavorites(ctx: StateContext<FavoriteStateModel>) {
-    ctx.setState({ favoritesByUser: {} });
+    ctx.patchState({ favoritesByUser: {} });
   }
 
   // -----------------------
-  // SELECTORS (safe)
+  // SELECTORS (✅ via createSelector)
   // -----------------------
-  @Selector([AuthState.isConnected, AuthState.currentUser])
-  static getFavorites(state: FavoriteStateModel, isConnected: boolean, user: any): Pollution[] {
-    const map = state?.favoritesByUser ?? {};
-    const key = (!isConnected || !user?.id) ? 'guest' : String(user.id);
-    return map[key] ?? [];
-  }
+  static getFavorites = createSelector(
+    [FavoriteState, AuthState],
+    (fav: FavoriteStateModel, auth: any): Pollution[] => {
+      const favoritesByUser = fav.favoritesByUser ?? {};
+      const key = auth?.user?.id != null ? String(auth.user.id) : 'guest';
+      return favoritesByUser[key] ?? [];
+    }
+  );
 
-  @Selector([AuthState.isConnected, AuthState.currentUser])
-  static getFavoritesCount(state: FavoriteStateModel, isConnected: boolean, user: any): number {
-    const map = state?.favoritesByUser ?? {};
-    const key = (!isConnected || !user?.id) ? 'guest' : String(user.id);
-    return (map[key] ?? []).length;
-  }
+  static getFavoritesCount = createSelector(
+    [FavoriteState.getFavorites],
+    (favorites: Pollution[]): number => favorites.length
+  );
 
-  @Selector([AuthState.isConnected, AuthState.currentUser])
-  static isFavorite(state: FavoriteStateModel, isConnected: boolean, user: any) {
-    const map = state?.favoritesByUser ?? {};
-    const key = (!isConnected || !user?.id) ? 'guest' : String(user.id);
-    return (id: string) => (map[key] ?? []).some(p => p.id === id);
-  }
+  static isFavorite = createSelector(
+    [FavoriteState.getFavorites],
+    (favorites: Pollution[]) => {
+      return (id: string | number) => {
+        const sid = String(id);
+        return favorites.some(p => String((p as any).id) === sid);
+      };
+    }
+  );
 }

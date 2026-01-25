@@ -6,7 +6,7 @@ import { Store } from '@ngxs/store';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ConnexionComponent } from '../connexion/connexion.component';
 import { FavoriteState } from '../../../shared/states/favorite-states';
-import { AuthState } from '../../../shared/states/auth-states'; // 🟢 IMPORT IMPORTANT
+import { AuthState } from '../../../shared/states/auth-states';
 
 @Component({
   selector: 'app-header',
@@ -19,7 +19,7 @@ export class HeaderComponent implements OnInit {
   isMenuOpen = false;
   searchQuery = '';
 
-  @Input() declareActive = false; 
+  @Input() declareActive = false;
   @Output() goHome = new EventEmitter<void>();
   @Output() openDeclareForm = new EventEmitter<void>();
   @Output() searchChanged = new EventEmitter<string>();
@@ -30,6 +30,17 @@ export class HeaderComponent implements OnInit {
   favoritesCount: Signal<number> = toSignal(
     this.store.select(FavoriteState.getFavoritesCount),
     { initialValue: 0 }
+  );
+
+  // ✅ AJOUT : infos connexion
+  isConnected: Signal<boolean> = toSignal(
+    this.store.select(AuthState.isConnected),
+    { initialValue: false }
+  );
+
+  currentUser: Signal<any | null> = toSignal(
+    this.store.select(AuthState.currentUser),
+    { initialValue: null }
   );
 
   ngOnInit() {}
@@ -54,6 +65,11 @@ export class HeaderComponent implements OnInit {
 
   navigateHome() {
     this.isMenuOpen = false;
+
+    // ✅ optionnel : reset champ recherche quand on revient home
+    this.searchQuery = '';
+    this.searchChanged.emit('');
+
     this.goHome.emit();
   }
 
@@ -62,17 +78,14 @@ export class HeaderComponent implements OnInit {
     this.openDeclareForm.emit();
   }
 
-  // accès favoris avec login obligatoire
   goToFavorites() {
     const connected = this.store.selectSnapshot(AuthState.isConnected);
 
-    // Pas connecté → redirection vers login + info sur où revenir
     if (!connected) {
       this.router.navigate(['/login'], { queryParams: { redirect: '/favoris' } });
       return;
     }
 
-    // ✔ Connecté → accès direct
     this.router.navigate(['/favoris']);
   }
 }

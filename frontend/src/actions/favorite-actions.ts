@@ -1,26 +1,23 @@
 import { Pollution } from "../app/models/pollution";
 
+// 🔹 ACTION : Ajouter une pollution en favori
 export class AddFavorite {
   static readonly type = '[Favorite] Add Favorite';
   constructor(public payload: Pollution) {}
 }
 
+// 🔹 ACTION : Retirer une pollution des favoris
 export class RemoveFavorite {
   static readonly type = '[Favorite] Remove Favorite';
-  constructor(public payload: { pollutionId: string }) {}
+  constructor(public payload: { pollutionId: string | number }) {}
 }
 
-// Vider les favoris UNIQUEMENT du user courant (guest ou connecté)
+// 🔹 ACTION : Vider les favoris du user courant (guest ou user connecté)
 export class ClearFavoritesForCurrentUser {
   static readonly type = '[Favorite] Clear Favorites For Current User';
 }
 
-// (Optionnel) vider tous les favoris de tout le monde (admin/debug)
+// 🔹 ACTION : Vider tous les favoris (tous users) — rarement utile
 export class ClearAllFavorites {
   static readonly type = '[Favorite] Clear All Favorites';
-}
-
-// (Optionnel) action “no-op” utile si tu veux déclencher une migration à la main
-export class LoadFavoritesFromStorage {
-  static readonly type = '[Favorite] Load From Storage';
 }

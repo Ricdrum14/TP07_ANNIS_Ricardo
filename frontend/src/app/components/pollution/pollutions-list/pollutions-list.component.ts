@@ -1,13 +1,16 @@
-import { Component, Input, OnInit, OnChanges, SimpleChanges, OnDestroy, inject, Signal } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, inject, Signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Observable, Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
+
 import { PollutionService } from '../../../services/pollution.service';
 import { Pollution } from '../../../models/pollution';
-import { Observable, map, Subject} from 'rxjs';
+
 import { Store } from '@ngxs/store';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { PollutionsDetailsComponent } from '../../pollutions-details/pollutions-details.component';
 import { AddFavorite, RemoveFavorite } from '../../../../actions/favorite-actions';
 import { FavoriteState } from '../../../../shared/states/favorite-states';
+import { PollutionsDetailsComponent } from '../../pollutions-details/pollutions-details.component';
 
 @Component({
   selector: 'app-pollutions-list',
@@ -16,22 +19,21 @@ import { FavoriteState } from '../../../../shared/states/favorite-states';
   templateUrl: './pollutions-list.component.html',
   styleUrls: ['./pollutions-list.component.css']
 })
-export class PollutionsListComponent implements OnInit, OnChanges, OnDestroy {
-  /** 👇 Ajout essentiel pour la liaison parent → enfant */
-  @Input() refreshTrigger = 0;
-  @Input() filterText = '';
+export class PollutionsListComponent implements OnInit, OnDestroy {
+  @Input({ required: true }) pollutions$!: Observable<Pollution[]>;
+  @Input() searchActive = false;
 
-  pollutions$!: Observable<Pollution[]>;
+  @Output() listChanged = new EventEmitter<void>();
+
   loading = true;
   selectedPollution?: Pollution;
 
-  showAll = false; // contrôle du bouton voir plus / moins
-  maxVisible = 4; // limite par défaut
+  showAll = false;
+  maxVisible = 4;
 
   private destroy$ = new Subject<void>();
   private store = inject(Store);
 
-  // 🔴 Signal pour les favoris
   favorites: Signal<Pollution[]> = toSignal(
     this.store.select(FavoriteState.getFavorites),
     { initialValue: [] }
@@ -40,38 +42,32 @@ export class PollutionsListComponent implements OnInit, OnChanges, OnDestroy {
   constructor(private pollutionService: PollutionService) {}
 
   ngOnInit(): void {
-    this.loadPollutions();
+    // Dès que la liste émet une première fois -> loading false
+    this.pollutions$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(() => (this.loading = false));
   }
 
-  /** 🔁 Quand refreshTrigger change → recharge les pollutions */
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['refreshTrigger'] && !changes['refreshTrigger'].firstChange) {
-      this.loadPollutions();
-    }
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
-  /** 🧩 Fonction centralisée pour charger les pollutions */
-  private loadPollutions(): void {
-    this.pollutions$ = this.pollutionService.pollutions$;
-    this.pollutionService.getPollutions().subscribe(() => {
-      this.loading = false;
-    });
+  toggleView() {
+    this.showAll = !this.showAll;
   }
 
   viewDetails(pollution: Pollution) {
-    console.log('ID de la pollution:', pollution.id); // Debug
     this.loading = true;
     this.pollutionService.getPollutionById(pollution.id).subscribe({
-      next: (detailedPollution) => {
-        console.log('Détails reçus:', detailedPollution); // Debug
-        this.selectedPollution = detailedPollution;
+      next: (detailed) => {
+        this.selectedPollution = detailed;
         this.loading = false;
       },
-      error: (error) => {
-        console.error('Erreur lors du chargement des détails:', error);
+      error: (err) => {
+        console.error(err);
         this.loading = false;
-        // Afficher un message à l'utilisateur
-        alert('Impossible de charger les détails de la pollution. ' + error.message);
+        alert('Impossible de charger les détails.');
       }
     });
   }
@@ -81,63 +77,30 @@ export class PollutionsListComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   deletePollution(id: string) {
-    if (confirm('❌ Voulez-vous vraiment supprimer cette pollution ?')) {
-      this.pollutionService.deletePollution(id).subscribe(() => {
-        this.loadPollutions(); // recharge après suppression
-      });
-    }
-  }
+    if (!confirm('❌ Voulez-vous vraiment supprimer cette pollution ?')) return;
 
-  toggleView() {
-    this.showAll = !this.showAll;
-  }
-
-  // 🔴 Vérifier si une pollution est en favori
-  isFavorite(pollutionId: string): boolean {
-    try {
-      const favs = this.favorites();
-      if (!Array.isArray(favs)) {
-        console.warn('⚠️ favorites is not an array');
-        return false;
+    this.pollutionService.deletePollution(id).subscribe({
+      next: () => {
+        this.listChanged.emit(); // ✅ demande au parent de refresh
+      },
+      error: (err) => {
+        console.error(err);
+        alert('Erreur lors de la suppression.');
       }
-      return favs.some(p => p.id === pollutionId);
-    } catch (error) {
-      console.error('❌ Erreur dans isFavorite:', error);
-      return false;
-    }
+    });
   }
 
-  // ❤️ Ajouter/Retirer un favori
+  isFavorite(pollutionId: string): boolean {
+    const favs = this.favorites();
+    return Array.isArray(favs) && favs.some(p => p.id === pollutionId);
+  }
+
   toggleFavorite(pollution: Pollution, event: Event) {
-    event.stopPropagation(); // Empêcher la propagation du clic
-    console.log('Toggle favori pour:', pollution.id);
-    
+    event.stopPropagation();
     if (this.isFavorite(pollution.id)) {
-      console.log('Retirer des favoris');
       this.store.dispatch(new RemoveFavorite({ pollutionId: pollution.id }));
     } else {
-      console.log('Ajouter aux favoris');
       this.store.dispatch(new AddFavorite(pollution));
     }
   }
-
-
-get filteredPollutions$(): Observable<Pollution[]> {
-  return this.pollutions$.pipe(
-    map(pollutions =>
-      pollutions.filter(p =>
-        p.titre.toLowerCase().includes(this.filterText) ||
-        p.lieu.toLowerCase().includes(this.filterText) ||
-        p.description.toLowerCase().includes(this.filterText)
-      )
-    )
-  );
-}
-
-/** 🧹 Nettoyage automatique quand le composant est détruit */
-  ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
-  }
-
 }

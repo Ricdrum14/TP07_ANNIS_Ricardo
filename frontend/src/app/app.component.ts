@@ -1,7 +1,5 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { Store } from '@ngxs/store';
-import { LoadFavoritesFromStorage } from '../actions/favorite-actions';
 
 @Component({
   selector: 'app-root',
@@ -10,13 +8,6 @@ import { LoadFavoritesFromStorage } from '../actions/favorite-actions';
   templateUrl: './app.component.html',
   styleUrl: './app.component.css'
 })
-export class AppComponent implements OnInit {
+export class AppComponent {
   title = 'Pollution';
-
-  private store = inject(Store);
-
-  ngOnInit() {
-    // ✅ Migration/normalisation des favoris (ancien format -> favoritesByUser)
-    this.store.dispatch(new LoadFavoritesFromStorage());
-  }
 }

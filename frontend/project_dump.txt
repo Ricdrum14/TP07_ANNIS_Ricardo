@@ -14921,17 +14921,17 @@ export class AddFavorite {
 // 🔹 ACTION : Retirer une pollution des favoris
 export class RemoveFavorite {
   static readonly type = '[Favorite] Remove Favorite';
-  constructor(public payload: { pollutionId: string }) {}
+  constructor(public payload: { pollutionId: string | number }) {}
 }
 
-// 🔹 ACTION : Vider tous les favoris
-export class ClearFavorites {
-  static readonly type = '[Favorite] Clear Favorites';
+// 🔹 ACTION : Vider les favoris du user courant (guest ou user connecté)
+export class ClearFavoritesForCurrentUser {
+  static readonly type = '[Favorite] Clear Favorites For Current User';
 }
 
-// 🔹 ACTION : Charger les favoris depuis le localStorage
-export class LoadFavoritesFromStorage {
-  static readonly type = '[Favorite] Load From Storage';
+// 🔹 ACTION : Vider tous les favoris (tous users) — rarement utile
+export class ClearAllFavorites {
+  static readonly type = '[Favorite] Clear All Favorites';
 }
 
 
@@ -15003,7 +15003,6 @@ import { RouterOutlet } from '@angular/router';
 })
 export class AppComponent {
   title = 'Pollution';
-
 }
 
 
@@ -15506,7 +15505,7 @@ import { Store } from '@ngxs/store';
 import { FavoriteState } from '../../../shared/states/favorite-states';
 import { Pollution } from '../../models/pollution';
 import { HeaderComponent } from '../header/header.component';
-import { RemoveFavorite, ClearFavorites } from '../../../actions/favorite-actions';
+import { RemoveFavorite, ClearFavoritesForCurrentUser } from '../../../actions/favorite-actions';
 import { Router } from '@angular/router';
 
 @Component({
@@ -15520,16 +15519,13 @@ export class FavoritesComponent implements OnInit {
   private store = inject(Store);
   private router = inject(Router);
 
-  // 🔴 Signal avec la liste des favoris
+  // ✅ Favoris du user courant (guest ou connecté), gérés par FavoriteState
   favorites: Signal<Pollution[]> = toSignal(
     this.store.select(FavoriteState.getFavorites),
     { initialValue: [] }
   );
 
-  ngOnInit() {
-    // Charger les favoris depuis le localStorage au démarrage
-    // (déjà fait par le StoragePlugin automatiquement)
-  }
+  ngOnInit() {}
 
   // ❌ Retirer un favori
   removeFavorite(pollutionId: string, event: Event) {
@@ -15537,10 +15533,10 @@ export class FavoritesComponent implements OnInit {
     this.store.dispatch(new RemoveFavorite({ pollutionId }));
   }
 
-  // 🗑️ Vider tous les favoris
+  // 🗑️ Vider les favoris du user courant (pas ceux des autres users)
   clearAllFavorites() {
     if (confirm('⚠️ Voulez-vous vraiment supprimer TOUS vos favoris ?')) {
-      this.store.dispatch(new ClearFavorites());
+      this.store.dispatch(new ClearFavoritesForCurrentUser());
     }
   }
 
@@ -15840,7 +15836,7 @@ import { Store } from '@ngxs/store';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ConnexionComponent } from '../connexion/connexion.component';
 import { FavoriteState } from '../../../shared/states/favorite-states';
-import { AuthState } from '../../../shared/states/auth-states'; // 🟢 IMPORT IMPORTANT
+import { AuthState } from '../../../shared/states/auth-states';
 
 @Component({
   selector: 'app-header',
@@ -15853,7 +15849,7 @@ export class HeaderComponent implements OnInit {
   isMenuOpen = false;
   searchQuery = '';
 
-  @Input() declareActive = false; 
+  @Input() declareActive = false;
   @Output() goHome = new EventEmitter<void>();
   @Output() openDeclareForm = new EventEmitter<void>();
   @Output() searchChanged = new EventEmitter<string>();
@@ -15864,6 +15860,17 @@ export class HeaderComponent implements OnInit {
   favoritesCount: Signal<number> = toSignal(
     this.store.select(FavoriteState.getFavoritesCount),
     { initialValue: 0 }
+  );
+
+  // ✅ AJOUT : infos connexion
+  isConnected: Signal<boolean> = toSignal(
+    this.store.select(AuthState.isConnected),
+    { initialValue: false }
+  );
+
+  currentUser: Signal<any | null> = toSignal(
+    this.store.select(AuthState.currentUser),
+    { initialValue: null }
   );
 
   ngOnInit() {}
@@ -15888,6 +15895,11 @@ export class HeaderComponent implements OnInit {
 
   navigateHome() {
     this.isMenuOpen = false;
+
+    // ✅ optionnel : reset champ recherche quand on revient home
+    this.searchQuery = '';
+    this.searchChanged.emit('');
+
     this.goHome.emit();
   }
 
@@ -15896,17 +15908,14 @@ export class HeaderComponent implements OnInit {
     this.openDeclareForm.emit();
   }
 
-  // accès favoris avec login obligatoire
   goToFavorites() {
     const connected = this.store.selectSnapshot(AuthState.isConnected);
 
-    // Pas connecté → redirection vers login + info sur où revenir
     if (!connected) {
       this.router.navigate(['/login'], { queryParams: { redirect: '/favoris' } });
       return;
     }
 
-    // ✔ Connecté → accès direct
     this.router.navigate(['/favoris']);
   }
 }
@@ -16082,7 +16091,7 @@ import { Store } from '@ngxs/store';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Login } from '../../../actions/auth-actions';
 import { AuthState } from '../../../shared/states/auth-states';
-import { LoadFavoritesFromStorage } from '../../../actions/favorite-actions';
+import { take } from 'rxjs/operators';
 
 @Component({
   selector: 'app-login',
@@ -16092,7 +16101,6 @@ import { LoadFavoritesFromStorage } from '../../../actions/favorite-actions';
   styleUrls: ['./login.component.css']
 })
 export class LoginComponent implements OnInit {
-
   email = '';
   password = '';
   formSubmitted = false;
@@ -16104,21 +16112,26 @@ export class LoginComponent implements OnInit {
   redirectUrl: string | null = null;
 
   isLoading: Signal<boolean> = toSignal(
-    this.store.select(AuthState.isLoading), { initialValue: false }
+    this.store.select(AuthState.isLoading),
+    { initialValue: false }
   );
 
   error: Signal<string | null> = toSignal(
-    this.store.select(AuthState.error), { initialValue: null }
+    this.store.select(AuthState.error),
+    { initialValue: null }
   );
 
   isConnected: Signal<boolean> = toSignal(
-    this.store.select(AuthState.isConnected), { initialValue: false }
+    this.store.select(AuthState.isConnected),
+    { initialValue: false }
   );
 
   ngOnInit() {
     this.redirectUrl = this.route.snapshot.queryParamMap.get('redirect');
 
-    if (this.isConnected()) {
+    // ✅ plus fiable que this.isConnected() au tout début
+    const connected = this.store.selectSnapshot(AuthState.isConnected);
+    if (connected) {
       this.router.navigate([this.redirectUrl || '/']);
     }
   }
@@ -16137,15 +16150,13 @@ export class LoginComponent implements OnInit {
     }
 
     this.store.dispatch(new Login({ email: this.email, password: this.password }))
+      .pipe(take(1))
       .subscribe(() => {
+        // ✅ snapshot = valeur certaine après traitement NGXS
+        const connected = this.store.selectSnapshot(AuthState.isConnected);
 
-        if (this.isConnected()) {
+        if (connected) {
           console.log('Connexion OK ✔');
-
-          // Charger les favoris du bon user
-          this.store.dispatch(new LoadFavoritesFromStorage());
-
-          // Redirection après login
           this.router.navigate([this.redirectUrl || '/']);
         }
       });
@@ -16186,22 +16197,21 @@ section[ng-reflect-ng-if] {
 ///////////////////////////////////////////////////
 
 <div class="mb-1">
-  <app-header (searchChanged)="onSearchChanged($event)" (goHome)="scrollToTop()"
-  (openDeclareForm)="onOpenDeclareForm()" [declareActive]="showForm" ></app-header>
+  <app-header
+    (searchChanged)="onSearchChanged($event)"
+    (goHome)="scrollToTop()"
+    (openDeclareForm)="onOpenDeclareForm()"
+    [declareActive]="showForm"
+  ></app-header>
 </div>
 
 <!-- 🌍 Hero Section -->
 <section
   class="relative w-full bg-gradient-to-br from-indigo-600 via-blue-600 to-green-500 text-white py-20 md:py-28 overflow-hidden"
 >
-  <div
-    class="container mx-auto flex flex-col md:flex-row items-center justify-between px-6 md:px-16"
-  >
-    <!-- Texte principal -->
+  <div class="container mx-auto flex flex-col md:flex-row items-center justify-between px-6 md:px-16">
     <div class="max-w-lg text-center md:text-left space-y-5 z-10">
-      <h1
-        class="text-4xl md:text-5xl font-extrabold leading-tight drop-shadow-lg"
-      >
+      <h1 class="text-4xl md:text-5xl font-extrabold leading-tight drop-shadow-lg">
         Protégeons notre
         <span class="block md:inline text-green-200">planète ensemble 🌍</span>
       </h1>
@@ -16211,25 +16221,18 @@ section[ng-reflect-ng-if] {
       </p>
 
       <button
-          (click)="toggleForm()"
-          class="mt-4 bg-white text-indigo-700 font-semibold px-6 py-3 rounded-lg shadow-lg
-                transition-all duration-300 ease-out transform
-                hover:-translate-y-1 hover:scale-105 hover:bg-indigo-50 hover:text-indigo-800 
-                hover:shadow-[0_0_20px_rgba(99,102,241,0.6)] active:scale-95"
+        (click)="toggleForm()"
+        class="mt-4 bg-white text-indigo-700 font-semibold px-6 py-3 rounded-lg shadow-lg
+               transition-all duration-300 ease-out transform
+               hover:-translate-y-1 hover:scale-105 hover:bg-indigo-50 hover:text-indigo-800
+               hover:shadow-[0_0_20px_rgba(99,102,241,0.6)] active:scale-95"
       >
-          🚀 Déclarer une pollution
+        🚀 Déclarer une pollution
       </button>
-
     </div>
 
-    <!-- 🌎 Image principale -->
-    <div
-      class="relative flex justify-center md:justify-end w-full md:w-1/2 mt-10 md:mt-0"
-    >
-      <div
-        class="absolute inset-0 bg-gradient-to-t from-indigo-600/30 via-transparent to-transparent rounded-full blur-3xl"
-      ></div>
-
+    <div class="relative flex justify-center md:justify-end w-full md:w-1/2 mt-10 md:mt-0">
+      <div class="absolute inset-0 bg-gradient-to-t from-indigo-600/30 via-transparent to-transparent rounded-full blur-3xl"></div>
       <img
         src="assets/terre.png"
         alt="illustration pollution"
@@ -16238,13 +16241,10 @@ section[ng-reflect-ng-if] {
     </div>
   </div>
 
-  <!-- Effet de fondu en bas -->
-  <div
-    class="absolute bottom-0 left-0 w-full h-24 bg-gradient-to-t from-white to-transparent"
-  ></div>
+  <div class="absolute bottom-0 left-0 w-full h-24 bg-gradient-to-t from-white to-transparent"></div>
 </section>
 
-<!-- ✅ Message de succès (affiché après envoi du formulaire) -->
+<!-- ✅ Message de succès -->
 <div
   *ngIf="successMessage"
   class="max-w-3xl mx-auto mt-10 px-6 py-4 bg-green-100 text-green-800 border border-green-300 rounded-lg text-center font-semibold shadow-md animate-fade-in-down"
@@ -16253,26 +16253,24 @@ section[ng-reflect-ng-if] {
 </div>
 
 <!-- ✅ Formulaire -->
-<section *ngIf="showForm"  #declareFormSection class="bg-gray-50 py-16">
+<section *ngIf="showForm" #declareFormSection class="bg-gray-50 py-16">
   <div class="max-w-3xl mx-auto px-6 bg-white rounded-2xl shadow-md p-8">
-    <app-pollutions-form
-      (pollutionAdded)="onPollutionAdded($event)"
-    ></app-pollutions-form>
+    <app-pollutions-form (pollutionAdded)="onPollutionAdded($event)"></app-pollutions-form>
   </div>
 </section>
 
 <!-- 🧾 Section Liste des Pollutions -->
-<section class="bg-gray-50 py-16">
+<section #listSection class="bg-gray-50 py-16">
   <div class="max-w-7xl mx-auto px-6">
-    <h2
-      class="text-2xl md:text-3xl font-extrabold text-center text-indigo-700 mb-12 flex flex-col items-center justify-center gap-2"
-    >
+    <h2 class="text-2xl md:text-3xl font-extrabold text-center text-indigo-700 mb-12 flex flex-col items-center justify-center gap-2">
       <span class="text-3xl md:text-4xl">🌿</span>
       <span>Dernières pollutions signalées</span>
     </h2>
 
-    <app-pollutions-list [refreshTrigger]="refreshKey" [filterText]="searchText"
-></app-pollutions-list>
+    <app-pollutions-list
+      [refreshTrigger]="refreshKey"
+      [searchActive]="hasSearched"
+    ></app-pollutions-list>
   </div>
 </section>
 
@@ -16312,95 +16310,112 @@ describe('PollutionComponent', () => {
 // src/app/components/pollution/pollution.component.ts
 ///////////////////////////////////////////////////
 
-import { Component, ViewChild, ElementRef, AfterViewChecked} from '@angular/core';
+import { Component, ViewChild, ElementRef, AfterViewChecked, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HeaderComponent } from '../header/header.component';
 import { PollutionsListComponent } from './pollutions-list/pollutions-list.component';
 import { PollutionsFormComponent } from '../pollutions-form/pollutions-form.component';
-import { Pollution } from '../../models/pollution';
+import { PollutionService } from '../../services/pollution.service';
+
+import { Subject, of } from 'rxjs';
+import { debounceTime, distinctUntilChanged, switchMap, catchError, tap, map } from 'rxjs/operators';
 
 @Component({
   selector: 'app-pollution',
   standalone: true,
-  imports: [
-    HeaderComponent,
-    PollutionsListComponent,
-    PollutionsFormComponent,
-    CommonModule,
-    
-  ],
+  imports: [HeaderComponent, PollutionsListComponent, PollutionsFormComponent, CommonModule],
   templateUrl: './pollution.component.html',
   styleUrls: ['./pollution.component.css']
 })
-export class PollutionComponent implements AfterViewChecked {
-  showForm = false; // ✅ formulaire caché par défaut
-  successMessage = ''; // ✅ message de succès
-  refreshKey = 0; // ✅ pour rafraîchir la liste
-  searchText = '';
+export class PollutionComponent implements AfterViewChecked, OnInit {
+  showForm = false;
+  successMessage = '';
+  refreshKey = 0;
+
+  private search$ = new Subject<string>();
+
+  // ✅ états UI
+  hasSearched = false;
+
   private pendingScroll = false;
 
-   // ✅ référence pour scroller
   @ViewChild('declareFormSection') declareFormSection!: ElementRef<HTMLElement>;
+  @ViewChild('listSection') listSection!: ElementRef<HTMLElement>;
 
-  /** 🔁 Ouvre / ferme le formulaire */
-   toggleForm() {
-    this.showForm = !this.showForm;
-    if (this.showForm) {
-      this.pendingScroll = true; // 👈 indique qu'on doit scroller quand la vue est prête
-    }
-  }
+  constructor(private pollutionService: PollutionService) {}
 
-   ngAfterViewChecked() {
-    if (this.pendingScroll && this.declareFormSection) {
-      this.declareFormSection.nativeElement.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start'
+  ngOnInit(): void {
+    this.search$
+      .pipe(
+        map((term: string) => (term ?? '').trim().toLowerCase()),
+        debounceTime(300),
+        distinctUntilChanged(),
+        tap((term: string) => {
+          this.hasSearched = term.length > 0;
+
+          if (this.hasSearched) {
+            setTimeout(() => {
+              this.listSection?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 0);
+          }
+        }),
+        switchMap((term: string) =>
+          this.pollutionService.searchPollutions(term).pipe(
+            catchError(() => of([]))
+          )
+        )
+      )
+      .subscribe((results: any[]) => {
+        // ✅ si résultats -> scroll vers la 1ère carte
+        if (results.length > 0) {
+          setTimeout(() => {
+            const firstCard = document.querySelector('[data-pollution-card="0"]');
+            firstCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 0);
+        }
       });
-      this.pendingScroll = false; // ✅ on a scrollé, on reset
+  }
+
+  onSearchChanged(query: string) {
+    this.search$.next(query);
+  }
+
+  toggleForm() {
+    this.showForm = !this.showForm;
+    if (this.showForm) this.pendingScroll = true;
+  }
+
+  ngAfterViewChecked() {
+    if (this.pendingScroll && this.declareFormSection) {
+      this.declareFormSection.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      this.pendingScroll = false;
     }
   }
 
-  /** ✅ Reçoit le message du composant enfant */
   onPollutionAdded(message: string) {
     this.successMessage = message;
-
-    // 🔄 rafraîchit la liste
     this.refreshKey++;
 
-    // ⏳ efface le message et cache le formulaire après 3 sec
     setTimeout(() => {
       this.successMessage = '';
       this.showForm = false;
     }, 3000);
   }
 
- 
-
-  onSearchChanged(query: string) {
-    this.searchText = query;
-  }
-
   scrollToTop() {
+    // reset recherche quand on revient “Accueil”
+    this.search$.next('');
+    this.hasSearched = false;
+
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-
-  // 🔹 appelé par le HEADER quand on clique sur “Accueil”
-  onGoHome() {
-    this.showForm = false;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  // 🔹 appelé par le HEADER quand on clique sur “Déclarer”
   onOpenDeclareForm() {
     if (!this.showForm) this.showForm = true;
-    // attendre que le DOM montre la section puis scroller
     setTimeout(() => {
       this.declareFormSection?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 0);
   }
-
-
 }
 
 
@@ -16426,113 +16441,97 @@ export class PollutionComponent implements AfterViewChecked {
 ///////////////////////////////////////////////////
 
 <div class="max-w-7xl mx-auto px-6 py-16">
- 
-  <!-- Chargement -->
+
   <div *ngIf="loading" class="text-center text-gray-500 italic">
     Chargement des données en cours...
   </div>
 
-  <!-- ✅ Détails d'une pollution -->
-  <app-pollution-details
-    *ngIf="selectedPollution"
-    [pollution]="selectedPollution"
-  ></app-pollution-details>
+  <app-pollution-details *ngIf="selectedPollution" [pollution]="selectedPollution"></app-pollution-details>
 
-  <!-- 🔙 Bouton retour -->
   <div *ngIf="selectedPollution" class="text-center mt-6">
-    <button
-      (click)="closeDetails()"
-      class="bg-gray-200 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-300 transition"
-    >
+    <button (click)="closeDetails()"
+      class="bg-gray-200 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-300 transition">
       ← Retour à la liste
     </button>
   </div>
-    <!-- 🔽 Sinon, la liste -->
-<ng-container *ngIf="!selectedPollution && !loading">
-  <ng-container *ngIf="(filteredPollutions$ | async) as pollutions; else noData">
 
-    <!-- ✅ Grille des pollutions (limitée à 4 par défaut) -->
-    <div class="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-10">
-      <div
-        *ngFor="let pollution of (showAll ? pollutions : pollutions.slice(0, maxVisible))"
-        class="bg-white rounded-2xl shadow-md hover:shadow-xl transition-shadow duration-300 overflow-hidden group relative"
-      >
-        <!-- Image -->
-        <div class="relative">
-          <img
-            [src]="pollution.photo"
-            [alt]="pollution.titre"
-            title="Photo de pollution"
-            class="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-500"
-            onerror="this.src='assets/images/default-pollution.jpg'; this.onerror=null;"
-          />
-          <div
-            class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-          ></div>
+  <ng-container *ngIf="!selectedPollution && !loading">
+    <ng-container *ngIf="(pollutions$ | async) as pollutions; else noData">
 
-          <!-- ❤️ Bouton Favori (haut-droit) -->
-          <button
-            (click)="toggleFavorite(pollution, $event)"
-            class="absolute top-3 right-3 bg-white/80 hover:bg-white rounded-full p-2 shadow-md hover:shadow-lg transition-all duration-200 z-10"
-            [title]="isFavorite(pollution.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'"
-          >
-            <span class="text-2xl">{{ isFavorite(pollution.id) ? '❤️' : '🤍' }}</span>
-          </button>
-        </div>
+      <!-- ✅ Cas RECHERCHE : aucun résultat -->
+      <div *ngIf="searchActive && pollutions.length === 0" class="text-gray-400 text-center mt-12 text-lg">
+        Aucun résultat trouvé 🔎
+      </div>
 
-        <!-- Contenu -->
-        <div class="p-5">
-          <h3 class="text-lg font-bold text-indigo-700 mb-1 truncate">
-            {{ pollution.titre }}
-          </h3>
-          <p class="text-xs text-gray-500 mb-2 flex items-center gap-1">
-            📍 {{ pollution.lieu }} — {{ pollution.date | date:'dd MMM yyyy' }}
-          </p>
-          <p class="text-gray-600 text-sm mb-3 line-clamp-2">
-            {{ pollution.description }}
-          </p>
-          <p class="text-xs text-gray-400 mb-3 italic">
-            Lat: {{ pollution.latitude }} / Long: {{ pollution.longitude }}
-          </p>
+      <!-- ✅ Cas NORMAL : aucune pollution -->
+      <div *ngIf="!searchActive && pollutions.length === 0" class="text-gray-400 text-center mt-12 text-lg">
+        Aucune pollution signalée pour le moment 🌍
+      </div>
 
-          <div class="flex justify-between items-center">
+      <!-- ✅ Grille -->
+      <div *ngIf="pollutions.length > 0" class="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-10">
+        <div
+          *ngFor="let pollution of (showAll ? pollutions : pollutions.slice(0, maxVisible)); let i = index"
+          class="bg-white rounded-2xl shadow-md hover:shadow-xl transition-shadow duration-300 overflow-hidden group relative"
+          [attr.data-pollution-card]="i"
+        >
+          <div class="relative">
+            <img
+              [src]="pollution.photo"
+              [alt]="pollution.titre"
+              title="Photo de pollution"
+              class="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-500"
+              onerror="this.src='assets/images/default-pollution.jpg'; this.onerror=null;"
+            />
+            <div class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+
             <button
-              (click)="viewDetails(pollution)"
-              class="text-sm font-medium text-indigo-600 hover:text-indigo-800 transition"
+              (click)="toggleFavorite(pollution, $event)"
+              class="absolute top-3 right-3 bg-white/80 hover:bg-white rounded-full p-2 shadow-md hover:shadow-lg transition-all duration-200 z-10"
+              [title]="isFavorite(pollution.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'"
             >
-              Voir plus →
+              <span class="text-2xl">{{ isFavorite(pollution.id) ? '❤️' : '🤍' }}</span>
             </button>
-            <button
-              (click)="deletePollution(pollution.id)"
-              class="text-sm font-medium text-red-500 hover:text-red-700 transition"
-            >
-              🗑️ Supprimer
-            </button>
+          </div>
+
+          <div class="p-5">
+            <h3 class="text-lg font-bold text-indigo-700 mb-1 truncate">{{ pollution.titre }}</h3>
+            <p class="text-xs text-gray-500 mb-2 flex items-center gap-1">
+              📍 {{ pollution.lieu }} — {{ pollution.date | date:'dd MMM yyyy' }}
+            </p>
+            <p class="text-gray-600 text-sm mb-3 line-clamp-2">{{ pollution.description }}</p>
+            <p class="text-xs text-gray-400 mb-3 italic">Lat: {{ pollution.latitude }} / Long: {{ pollution.longitude }}</p>
+
+            <div class="flex justify-between items-center">
+              <button (click)="viewDetails(pollution)"
+                class="text-sm font-medium text-indigo-600 hover:text-indigo-800 transition">
+                Voir plus →
+              </button>
+              <button (click)="deletePollution(pollution.id)"
+                class="text-sm font-medium text-red-500 hover:text-red-700 transition">
+                🗑️ Supprimer
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- ✅ Bouton "Voir plus / moins" -->
-    <div *ngIf="(filteredPollutions$ | async)?.length! > maxVisible" class="text-center mt-10">
-      <button
-        (click)="toggleView()"
-        class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700 transition"
-      >
-        {{ showAll ? 'Voir moins ↑' : 'Voir plus ↓' }}
-      </button>
-    </div>
+      <div *ngIf="pollutions.length > maxVisible" class="text-center mt-10">
+        <button (click)="toggleView()"
+          class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700 transition">
+          {{ showAll ? 'Voir moins ↑' : 'Voir plus ↓' }}
+        </button>
+      </div>
+
+    </ng-container>
+
+    <ng-template #noData>
+      <div class="text-gray-400 text-center mt-12 text-lg">
+        Aucune pollution signalée pour le moment 🌍
+      </div>
+    </ng-template>
   </ng-container>
 
-  <!-- Aucune pollution -->
-  <ng-template #noData>
-    <div class="text-gray-400 text-center mt-12 text-lg">
-      Aucune pollution signalée pour le moment 🌍
-    </div>
-  </ng-template>
-</ng-container>
-
- 
 </div>
 
 
@@ -16571,11 +16570,11 @@ describe('PollutionsListComponent', () => {
 // src/app/components/pollution/pollutions-list/pollutions-list.component.ts
 ///////////////////////////////////////////////////
 
-import { Component, Input, OnInit, OnChanges, SimpleChanges, OnDestroy, inject, Signal } from '@angular/core';
+import { Component, Input, OnInit, OnDestroy, inject, Signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { PollutionService } from '../../../services/pollution.service';
 import { Pollution } from '../../../models/pollution';
-import { Observable, map, Subject} from 'rxjs';
+import { Observable, Subject } from 'rxjs';
 import { Store } from '@ngxs/store';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { PollutionsDetailsComponent } from '../../pollutions-details/pollutions-details.component';
@@ -16589,22 +16588,22 @@ import { FavoriteState } from '../../../../shared/states/favorite-states';
   templateUrl: './pollutions-list.component.html',
   styleUrls: ['./pollutions-list.component.css']
 })
-export class PollutionsListComponent implements OnInit, OnChanges, OnDestroy {
-  /** 👇 Ajout essentiel pour la liaison parent → enfant */
+export class PollutionsListComponent implements OnInit, OnDestroy {
   @Input() refreshTrigger = 0;
-  @Input() filterText = '';
+
+  // ✅ dit si on est en recherche
+  @Input() searchActive = false;
 
   pollutions$!: Observable<Pollution[]>;
   loading = true;
   selectedPollution?: Pollution;
 
-  showAll = false; // contrôle du bouton voir plus / moins
-  maxVisible = 4; // limite par défaut
+  showAll = false;
+  maxVisible = 4;
 
   private destroy$ = new Subject<void>();
   private store = inject(Store);
 
-  // 🔴 Signal pour les favoris
   favorites: Signal<Pollution[]> = toSignal(
     this.store.select(FavoriteState.getFavorites),
     { initialValue: [] }
@@ -16613,37 +16612,24 @@ export class PollutionsListComponent implements OnInit, OnChanges, OnDestroy {
   constructor(private pollutionService: PollutionService) {}
 
   ngOnInit(): void {
-    this.loadPollutions();
-  }
-
-  /** 🔁 Quand refreshTrigger change → recharge les pollutions */
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['refreshTrigger'] && !changes['refreshTrigger'].firstChange) {
-      this.loadPollutions();
-    }
-  }
-
-  /** 🧩 Fonction centralisée pour charger les pollutions */
-  private loadPollutions(): void {
     this.pollutions$ = this.pollutionService.pollutions$;
+
+    // charge initial
     this.pollutionService.getPollutions().subscribe(() => {
       this.loading = false;
     });
   }
 
   viewDetails(pollution: Pollution) {
-    console.log('ID de la pollution:', pollution.id); // Debug
     this.loading = true;
     this.pollutionService.getPollutionById(pollution.id).subscribe({
       next: (detailedPollution) => {
-        console.log('Détails reçus:', detailedPollution); // Debug
         this.selectedPollution = detailedPollution;
         this.loading = false;
       },
       error: (error) => {
         console.error('Erreur lors du chargement des détails:', error);
         this.loading = false;
-        // Afficher un message à l'utilisateur
         alert('Impossible de charger les détails de la pollution. ' + error.message);
       }
     });
@@ -16656,7 +16642,8 @@ export class PollutionsListComponent implements OnInit, OnChanges, OnDestroy {
   deletePollution(id: string) {
     if (confirm('❌ Voulez-vous vraiment supprimer cette pollution ?')) {
       this.pollutionService.deletePollution(id).subscribe(() => {
-        this.loadPollutions(); // recharge après suppression
+        // refresh visuel (si tu veux)
+        this.pollutionService.getPollutions().subscribe();
       });
     }
   }
@@ -16665,54 +16652,24 @@ export class PollutionsListComponent implements OnInit, OnChanges, OnDestroy {
     this.showAll = !this.showAll;
   }
 
-  // 🔴 Vérifier si une pollution est en favori
   isFavorite(pollutionId: string): boolean {
-    try {
-      const favs = this.favorites();
-      if (!Array.isArray(favs)) {
-        console.warn('⚠️ favorites is not an array');
-        return false;
-      }
-      return favs.some(p => p.id === pollutionId);
-    } catch (error) {
-      console.error('❌ Erreur dans isFavorite:', error);
-      return false;
-    }
+    const favs = this.favorites();
+    return Array.isArray(favs) ? favs.some(p => p.id === pollutionId) : false;
   }
 
-  // ❤️ Ajouter/Retirer un favori
   toggleFavorite(pollution: Pollution, event: Event) {
-    event.stopPropagation(); // Empêcher la propagation du clic
-    console.log('Toggle favori pour:', pollution.id);
-    
+    event.stopPropagation();
     if (this.isFavorite(pollution.id)) {
-      console.log('Retirer des favoris');
       this.store.dispatch(new RemoveFavorite({ pollutionId: pollution.id }));
     } else {
-      console.log('Ajouter aux favoris');
       this.store.dispatch(new AddFavorite(pollution));
     }
   }
 
-
-get filteredPollutions$(): Observable<Pollution[]> {
-  return this.pollutions$.pipe(
-    map(pollutions =>
-      pollutions.filter(p =>
-        p.titre.toLowerCase().includes(this.filterText) ||
-        p.lieu.toLowerCase().includes(this.filterText) ||
-        p.description.toLowerCase().includes(this.filterText)
-      )
-    )
-  );
-}
-
-/** 🧹 Nettoyage automatique quand le composant est détruit */
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
   }
-
 }
 
 
@@ -17749,10 +17706,10 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const store = inject(Store);
   const router = inject(Router);
 
-  // ✅ SOURCE UNIQUE : NGXS STORE
   const token = store.selectSnapshot(AuthState.token);
 
-  if (token) {
+  // ✅ Ne pas envoyer Authorization si pas de token valide
+  if (typeof token === 'string' && token.trim().length > 0) {
     req = req.clone({
       setHeaders: {
         Authorization: `Bearer ${token}`
@@ -17762,8 +17719,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(req).pipe(
     catchError((error: HttpErrorResponse) => {
-      if (error.status === 401) {
-        console.warn('JWT invalide ou expiré → logout');
+      // ✅ Ton backend renvoie 403 quand token expiré/invalide
+      if (error.status === 401 || error.status === 403) {
+        console.warn('JWT invalide/expiré → logout');
         store.dispatch(new Logout());
         router.navigate(['/login']);
       }
@@ -17819,11 +17777,13 @@ export class Utilisateur {
 ///////////////////////////////////////////////////
 
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { BehaviorSubject, Observable, of, throwError } from 'rxjs';
 import { map, tap, catchError } from 'rxjs/operators';
 import { Pollution } from '../models/pollution';
 import { environment } from '../../environments/environment';
+import { Store } from '@ngxs/store';
+import { AuthState } from '../../shared/states/auth-states';
 
 @Injectable({
   providedIn: 'root'
@@ -17836,66 +17796,132 @@ export class PollutionService {
   private pollutionsSubject = new BehaviorSubject<Pollution[]>([]);
   pollutions$ = this.pollutionsSubject.asObservable();
 
-  constructor(private http: HttpClient) {}
+  constructor(
+    private http: HttpClient,
+    private store: Store
+  ) {}
 
+  // -------------------------
+  // Helpers
+  // -------------------------
   private handleError(error: HttpErrorResponse, message: string): Observable<never> {
-    console.error('Une erreur s\'est produite:', error);
+    console.error("Une erreur s'est produite:", error);
     return throwError(() => new Error(message));
   }
 
-  /** 🔹 Récupère toutes les pollutions */
+  private mapToPollution(item: any): Pollution {
+    return new Pollution(
+      item.titre,
+      item.type_pollution || item.type,
+      item.description,
+      new Date(item.date_observation || item.date),
+      item.lieu,
+      item.latitude,
+      item.longitude,
+      item.photo_url || item.photo,
+      item.id
+    );
+  }
+
+  /** ✅ Seulement pour les routes qui nécessitent auth (POST/PUT/DELETE) */
+  private requireAuth(): boolean {
+    if (this.isMock) return true;
+    const isConnected = this.store.selectSnapshot(AuthState.isConnected);
+    return !!isConnected;
+  }
+
+  // -------------------------
+  // ✅ GET ALL (PUBLIC)
+  // -------------------------
   getPollutions(): Observable<Pollution[]> {
-    if (this.localPollutions.length === 0) {
+    // ✅ GET public → on n'empêche pas l'appel si guest
+    if (this.isMock) {
+      if (this.localPollutions.length > 0) return of(this.localPollutions);
       return this.http.get<any[]>(this.apiUrl).pipe(
-        map(data => data.map(item => new Pollution(
-          item.titre,
-          item.type_pollution || item.type,
-          item.description,
-          new Date(item.date_observation || item.date),
-          item.lieu,
-          item.latitude,
-          item.longitude,
-          item.photo_url || item.photo,
-          item.id // 👈 Correction ici (id PostgreSQL)
-        ))),
+        map(data => data.map(item => this.mapToPollution(item))),
         tap(pollutions => {
           this.localPollutions = pollutions;
           this.pollutionsSubject.next(pollutions);
-        })
+        }),
+        catchError(error => this.handleError(error, 'Impossible de récupérer les pollutions.'))
       );
     }
-    return this.pollutions$;
+
+    return this.http.get<any[]>(this.apiUrl).pipe(
+      map(data => data.map(item => this.mapToPollution(item))),
+      tap(pollutions => {
+        this.localPollutions = pollutions;
+        this.pollutionsSubject.next(pollutions);
+      }),
+      catchError(error => this.handleError(error, 'Impossible de récupérer les pollutions.'))
+    );
   }
 
-  /** 🔍 Récupère une pollution par ID */
+  // -------------------------
+  // ✅ SEARCH (PUBLIC) - Option A
+  // -------------------------
+  searchPollutions(term: string, typePollution?: string): Observable<Pollution[]> {
+    // Mode mock : filtre local
+    if (this.isMock) {
+      const q = (term || '').trim().toLowerCase();
+      const t = (typePollution || '').trim().toLowerCase();
+
+      const filtered = (this.localPollutions ?? []).filter(p => {
+        const matchQ =
+          !q ||
+          (p.titre || '').toLowerCase().includes(q) ||
+          (p.lieu || '').toLowerCase().includes(q) ||
+          (p.description || '').toLowerCase().includes(q);
+
+        const matchT = !t || (p.type || '').toLowerCase() === t;
+        return matchQ && matchT;
+      });
+
+      this.pollutionsSubject.next(filtered);
+      return of(filtered);
+    }
+
+    // ✅ API réelle : GET public, on appelle toujours
+    let params = new HttpParams();
+    const q = (term || '').trim();
+    const t = (typePollution || '').trim();
+
+    if (q) params = params.set('q', q);
+    if (t) params = params.set('typePollution', t);
+
+    return this.http.get<any[]>(this.apiUrl, { params }).pipe(
+      map(data => data.map(item => this.mapToPollution(item))),
+      tap(results => {
+        this.localPollutions = results;
+        this.pollutionsSubject.next(results);
+      }),
+      catchError(error => this.handleError(error, 'Impossible de rechercher les pollutions.'))
+    );
+  }
+
+  // -------------------------
+  // ✅ GET BY ID (PUBLIC)
+  // -------------------------
   getPollutionById(id: string): Observable<Pollution> {
     if (this.isMock) {
       const pollution = this.localPollutions.find(p => p.id === id);
       return pollution ? of(pollution) : throwError(() => new Error('Pollution non trouvée'));
-    } else {
-      return this.http.get<any>(`${this.apiUrl}/${id}`).pipe(
-        map(item => {
-          if (!item) throw new Error('Pollution non trouvée');
-          return new Pollution(
-            item.titre,
-            item.type_pollution || item.type,
-            item.description,
-            new Date(item.date_observation || item.date),
-            item.lieu,
-            item.latitude,
-            item.longitude,
-            item.photo_url || item.photo,
-            item.id
-          );
-        }),
-        catchError(error => this.handleError(error, 'Impossible de récupérer la pollution.'))
-      );
     }
+
+    // ✅ GET public → pas besoin d’être connecté
+    return this.http.get<any>(`${this.apiUrl}/${id}`).pipe(
+      map(item => {
+        if (!item) throw new Error('Pollution non trouvée');
+        return this.mapToPollution(item);
+      }),
+      catchError(error => this.handleError(error, 'Impossible de récupérer la pollution.'))
+    );
   }
 
-  /** ➕ Ajoute une pollution */
+  // -------------------------
+  // ✅ CREATE (AUTH)
+  // -------------------------
   addPollution(pollution: Pollution): Observable<Pollution> {
-    // ⚠️ On ne veut pas envoyer un énorme base64 à l’API
     const isBase64 = typeof pollution.photo === 'string' && pollution.photo.startsWith('data:');
 
     const pollutionData = {
@@ -17906,46 +17932,44 @@ export class PollutionService {
       description: pollution.description,
       latitude: pollution.latitude,
       longitude: pollution.longitude,
-      // 👇 Si c’est du base64, on n’envoie rien pour éviter le 413
       photo_url: isBase64 ? null : pollution.photo
     };
 
     if (this.isMock) {
       this.localPollutions.push(pollution);
       this.pollutionsSubject.next([...this.localPollutions]);
-      console.log('✅ Pollution ajoutée (mock) :', pollution);
       return of(pollution);
-    } else {
-      return this.http.post<any>(this.apiUrl, pollutionData).pipe(
-        map(response => {
-          const newPollution = new Pollution(
-            response.titre,
-            response.type_pollution || response.type,
-            response.description,
-            new Date(response.date_observation || response.date),
-            response.lieu,
-            response.latitude,
-            response.longitude,
-            response.photo_url || response.photo,
-            response.id
-          );
-          this.localPollutions.push(newPollution);
-          this.pollutionsSubject.next([...this.localPollutions]);
-          return newPollution;
-        }),
-        catchError(error => this.handleError(error, 'Erreur lors de la création de la pollution.'))
-      );
     }
+
+    if (!this.requireAuth()) {
+      return throwError(() => new Error('Non authentifié'));
+    }
+
+    return this.http.post<any>(this.apiUrl, pollutionData).pipe(
+      map(response => this.mapToPollution(response)),
+      tap(newPollution => {
+        this.localPollutions.push(newPollution);
+        this.pollutionsSubject.next([...this.localPollutions]);
+      }),
+      catchError(error => this.handleError(error, 'Erreur lors de la création de la pollution.'))
+    );
   }
 
-  /** ✏️ Met à jour une pollution */
-updatePollution(updated: Pollution): Observable<Pollution> {
-  if (this.isMock) {
-    const index = this.localPollutions.findIndex(p => p.id === updated.id);
-    if (index !== -1) this.localPollutions[index] = updated;
-    this.pollutionsSubject.next([...this.localPollutions]);
-    return of(updated);
-  } else {
+  // -------------------------
+  // ✅ UPDATE (AUTH)
+  // -------------------------
+  updatePollution(updated: Pollution): Observable<Pollution> {
+    if (this.isMock) {
+      const index = this.localPollutions.findIndex(p => p.id === updated.id);
+      if (index !== -1) this.localPollutions[index] = updated;
+      this.pollutionsSubject.next([...this.localPollutions]);
+      return of(updated);
+    }
+
+    if (!this.requireAuth()) {
+      return throwError(() => new Error('Non authentifié'));
+    }
+
     const pollutionData = {
       titre: updated.titre,
       lieu: updated.lieu,
@@ -17962,56 +17986,41 @@ updatePollution(updated: Pollution): Observable<Pollution> {
 
     return this.http.put<any>(`${this.apiUrl}/${updated.id}`, pollutionData).pipe(
       map(response => {
-        // ✅ Vérifie si la pollution est dans response.data
         const item = response.data || response;
-
-        const updatedPollution = new Pollution(
-          item.titre,
-          item.type_pollution || item.type,
-          item.description,
-          new Date(item.date_observation || item.date),
-          item.lieu,
-          item.latitude,
-          item.longitude,
-          item.photo_url || item.photo,
-          item.id
-        );
-
-        // ✅ Met à jour la liste locale immédiatement
-        const index = this.localPollutions.findIndex(p => p.id === updatedPollution.id);
-        if (index !== -1) {
-          this.localPollutions[index] = updatedPollution;
-        } else {
-          this.localPollutions.push(updatedPollution);
-        }
-
-        // ✅ Émet la nouvelle liste (UI instantanément à jour)
-        this.pollutionsSubject.next([...this.localPollutions]);
-        return updatedPollution;
+        return this.mapToPollution(item);
       }),
-      catchError(error =>
-        this.handleError(error, 'Erreur lors de la mise à jour de la pollution.')
-      )
+      tap(updatedPollution => {
+        const index = this.localPollutions.findIndex(p => p.id === updatedPollution.id);
+        if (index !== -1) this.localPollutions[index] = updatedPollution;
+        else this.localPollutions.push(updatedPollution);
+
+        this.pollutionsSubject.next([...this.localPollutions]);
+      }),
+      catchError(error => this.handleError(error, 'Erreur lors de la mise à jour de la pollution.'))
     );
   }
-}
 
-
-  /** ❌ Supprime une pollution */
+  // -------------------------
+  // ✅ DELETE (AUTH)
+  // -------------------------
   deletePollution(id: string): Observable<any> {
     if (this.isMock) {
       this.localPollutions = this.localPollutions.filter(p => p.id !== id);
       this.pollutionsSubject.next([...this.localPollutions]);
-      return of({ message: "La pollution a été supprimée avec succès." });
-    } else {
-      return this.http.delete<any>(`${this.apiUrl}/${id}`).pipe(
-        tap(() => {
-          this.localPollutions = this.localPollutions.filter(p => p.id !== id);
-          this.pollutionsSubject.next([...this.localPollutions]);
-        }),
-        catchError(error => this.handleError(error, 'Impossible de supprimer la pollution.'))
-      );
+      return of({ message: 'La pollution a été supprimée avec succès.' });
     }
+
+    if (!this.requireAuth()) {
+      return throwError(() => new Error('Non authentifié'));
+    }
+
+    return this.http.delete<any>(`${this.apiUrl}/${id}`).pipe(
+      tap(() => {
+        this.localPollutions = this.localPollutions.filter(p => p.id !== id);
+        this.pollutionsSubject.next([...this.localPollutions]);
+      }),
+      catchError(error => this.handleError(error, 'Impossible de supprimer la pollution.'))
+    );
   }
 }
 
@@ -18464,7 +18473,6 @@ import { Login, Logout } from '../../actions/auth-actions';
 import { UtilisateurService } from '../../app/services/utilisateur.service';
 import { tap, catchError } from 'rxjs/operators';
 import { of } from 'rxjs';
-import { ClearFavorites } from '../../actions/favorite-actions';
 
 @State<AuthStateModel>({
   name: 'auth',
@@ -18478,12 +18486,8 @@ import { ClearFavorites } from '../../actions/favorite-actions';
 })
 @Injectable()
 export class AuthState {
-
   constructor(private utilisateurService: UtilisateurService) {}
 
-  // =======================
-  // SELECTORS
-  // =======================
   @Selector()
   static isConnected(state: AuthStateModel) {
     return state.isConnected;
@@ -18509,17 +18513,25 @@ export class AuthState {
     return state.error;
   }
 
-  // =======================
-  // LOGIN
-  // =======================
   @Action(Login)
   login(ctx: StateContext<AuthStateModel>, { payload }: Login) {
     ctx.patchState({ isLoading: true, error: null });
 
     return this.utilisateurService.login(payload.email, payload.password).pipe(
       tap((response: any) => {
-        const token = response.accessToken ?? response.token;
-        const user = response.user ?? response;
+        const token = response.accessToken ?? response.token ?? null;
+        const user = response.user ?? null;
+
+        if (!token || !user) {
+          ctx.patchState({
+            isConnected: false,
+            user: null,
+            token: null,
+            isLoading: false,
+            error: 'Réponse login invalide (token/user manquant)'
+          });
+          return;
+        }
 
         ctx.patchState({
           isConnected: true,
@@ -18535,21 +18547,15 @@ export class AuthState {
           user: null,
           token: null,
           isLoading: false,
-          error: err?.error?.message || 'Erreur de connexion'
+          error: err?.error?.message || err?.message || 'Erreur de connexion'
         });
         return of(null);
       })
     );
   }
 
-  // =======================
-  // LOGOUT
-  // =======================
   @Action(Logout)
   logout(ctx: StateContext<AuthStateModel>) {
-    ctx.dispatch(new ClearFavorites());
-
-    // ✅ reset du state → NGXS Storage écrase automatiquement le storage
     ctx.setState({
       isConnected: false,
       user: null,
@@ -18569,7 +18575,7 @@ export class AuthState {
 import { Pollution } from "../../app/models/pollution";
 
 export interface FavoriteStateModel {
-    favorites: Pollution[];
+     favoritesByUser: Record<string, Pollution[]>;
 }
 
 
@@ -18578,78 +18584,130 @@ export interface FavoriteStateModel {
 // src/shared/states/favorite-states.ts
 ///////////////////////////////////////////////////
 
-import { Action, Selector, State, StateContext } from '@ngxs/store';
+import { Injectable } from '@angular/core';
+import { Action, State, StateContext, Store, createSelector } from '@ngxs/store';
 import { FavoriteStateModel } from './favorite-state-model';
 import { Pollution } from '../../app/models/pollution';
 import {
   AddFavorite,
   RemoveFavorite,
-  ClearFavorites
+  ClearFavoritesForCurrentUser,
+  ClearAllFavorites
 } from '../../actions/favorite-actions';
+import { AuthState } from './auth-states';
 
 @State<FavoriteStateModel>({
   name: 'favorites',
   defaults: {
-    favorites: [],
-  },
+    favoritesByUser: {}
+  }
 })
+@Injectable()
 export class FavoriteState {
+  constructor(private store: Store) {}
 
-  // =======================
-  // ADD FAVORITE
-  // =======================
-  @Action(AddFavorite)
-  addFavorite(
-    { patchState, getState }: StateContext<FavoriteStateModel>,
-    { payload }: AddFavorite
-  ) {
-    const favorites = getState().favorites || [];
-
-    if (!favorites.some(p => p.id === payload.id)) {
-      patchState({ favorites: [...favorites, payload] });
-    }
+  // -----------------------
+  // Helpers
+  // -----------------------
+  private normalizeId(id: string | number | undefined | null): string {
+    return String(id ?? '');
   }
 
-  // =======================
-  // REMOVE FAVORITE
-  // =======================
-  @Action(RemoveFavorite)
-  removeFavorite(
-    { patchState, getState }: StateContext<FavoriteStateModel>,
-    { payload }: RemoveFavorite
-  ) {
-    patchState({
-      favorites: getState().favorites.filter(
-        p => p.id !== payload.pollutionId
-      )
+  private getUserKeyFromStore(): string {
+    const user = this.store.selectSnapshot(AuthState.currentUser);
+    // ✅ si user existe -> clé user.id, sinon guest
+    return user?.id != null ? String(user.id) : 'guest';
+  }
+
+  // -----------------------
+  // ACTIONS
+  // -----------------------
+  @Action(AddFavorite)
+  addFavorite(ctx: StateContext<FavoriteStateModel>, { payload }: AddFavorite) {
+    const state = ctx.getState();
+
+    // ✅ Si localStorage contient encore l'ancien format, on sécurise
+    const favoritesByUser = state.favoritesByUser ?? {};
+
+    const key = this.getUserKeyFromStore();
+    const current = favoritesByUser[key] ?? [];
+
+    const payloadId = this.normalizeId((payload as any).id);
+
+    if (current.some(p => this.normalizeId((p as any).id) === payloadId)) return;
+
+    ctx.patchState({
+      favoritesByUser: {
+        ...favoritesByUser,
+        [key]: [...current, payload]
+      }
     });
   }
 
-  // =======================
-  // CLEAR (LOGOUT)
-  // =======================
-  @Action(ClearFavorites)
-  clearFavorites({ patchState }: StateContext<FavoriteStateModel>) {
-    patchState({ favorites: [] });
+  @Action(RemoveFavorite)
+  removeFavorite(ctx: StateContext<FavoriteStateModel>, { payload }: RemoveFavorite) {
+    const state = ctx.getState();
+    const favoritesByUser = state.favoritesByUser ?? {};
+
+    const key = this.getUserKeyFromStore();
+    const current = favoritesByUser[key] ?? [];
+
+    const idToRemove = this.normalizeId(payload.pollutionId);
+
+    ctx.patchState({
+      favoritesByUser: {
+        ...favoritesByUser,
+        [key]: current.filter(p => this.normalizeId((p as any).id) !== idToRemove)
+      }
+    });
   }
 
-  // =======================
-  // SELECTORS
-  // =======================
-  @Selector()
-  static getFavorites(state: FavoriteStateModel): Pollution[] {
-    return state.favorites;
+  @Action(ClearFavoritesForCurrentUser)
+  clearFavoritesForCurrentUser(ctx: StateContext<FavoriteStateModel>) {
+    const state = ctx.getState();
+    const favoritesByUser = state.favoritesByUser ?? {};
+
+    const key = this.getUserKeyFromStore();
+
+    ctx.patchState({
+      favoritesByUser: {
+        ...favoritesByUser,
+        [key]: []
+      }
+    });
   }
 
-  @Selector()
-  static getFavoritesCount(state: FavoriteStateModel): number {
-    return state.favorites.length;
+  @Action(ClearAllFavorites)
+  clearAllFavorites(ctx: StateContext<FavoriteStateModel>) {
+    ctx.patchState({ favoritesByUser: {} });
   }
 
-  @Selector()
-  static isFavorite(state: FavoriteStateModel) {
-    return (id: string) => state.favorites.some(p => p.id === id);
-  }
+  // -----------------------
+  // SELECTORS (✅ via createSelector)
+  // -----------------------
+  static getFavorites = createSelector(
+    [FavoriteState, AuthState],
+    (fav: FavoriteStateModel, auth: any): Pollution[] => {
+      const favoritesByUser = fav.favoritesByUser ?? {};
+      const key = auth?.user?.id != null ? String(auth.user.id) : 'guest';
+      return favoritesByUser[key] ?? [];
+    }
+  );
+
+  static getFavoritesCount = createSelector(
+    [FavoriteState.getFavorites],
+    (favorites: Pollution[]): number => favorites.length
+  );
+
+  static isFavorite = createSelector(
+    [FavoriteState.getFavorites],
+    (favorites: Pollution[]) => {
+      return (id: string | number) => {
+        const sid = String(id);
+        return favorites.some(p => String((p as any).id) === sid);
+      };
+    }
+  );
 }
 
 
