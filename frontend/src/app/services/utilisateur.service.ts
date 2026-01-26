@@ -89,6 +89,44 @@ deleteUtilisateur(id: number): Observable<any> {
   );
 }
 
+/** ✅ ADMIN : créer un utilisateur */
+createUtilisateur(data: {
+  prenom: string;
+  nom: string;
+  email: string;
+  mot_de_passe: string;
+  role?: 'admin' | 'utilisateur';
+}): Observable<Utilisateur> {
+  return this.http.post<any>(this.apiUrl, data).pipe(
+    map(item =>
+      new Utilisateur(
+        item.id,
+        item.nom,
+        item.prenom,
+        item.email,
+        item.role,
+        new Date((item.date_creation ?? new Date()) as any)
+      )
+    ),
+    tap(() => {
+      // optionnel : refresh liste après création
+      this.getUtilisateurs().subscribe();
+    }),
+    catchError(err => this.handleError(err, "Erreur lors de la création de l'utilisateur."))
+  );
+}
+
+/** ✅ ADMIN : supprimer n'importe quel utilisateur (par id) */
+deleteUtilisateurById(id: number): Observable<any> {
+  return this.http.delete(`${this.apiUrl}/${id}`).pipe(
+    tap(() => {
+      // optionnel : refresh liste après suppression
+      this.getUtilisateurs().subscribe();
+    }),
+    catchError(err => this.handleError(err, "Erreur lors de la suppression de l'utilisateur."))
+  );
+}
+
 
   // ====================================================
   // 🔐 AUTHENTIFICATION

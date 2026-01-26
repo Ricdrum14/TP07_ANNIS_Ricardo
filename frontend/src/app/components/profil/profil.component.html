@@ -1,5 +1,5 @@
 <div class="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 p-6">
-  
+
   <!-- 🔙 Bouton retour -->
   <button
     routerLink="/"
@@ -11,17 +11,13 @@
     Retour à l’accueil
   </button>
 
-  <!-- 🧾 Contenu principal -->
-  <div
-    class="bg-white/95 backdrop-blur-xl p-8 rounded-2xl shadow-2xl w-full max-w-md space-y-6 border border-white/20"
-  >
-    <!-- 🧭 Titre -->
+  <!-- 🧾 Profil -->
+  <div class="bg-white/95 backdrop-blur-xl p-8 rounded-2xl shadow-2xl w-full max-w-md space-y-6 border border-white/20">
     <h2 class="text-2xl font-bold text-center text-indigo-700">Mon profil</h2>
     <p class="text-center text-gray-500 text-sm">
       Gérez vos informations personnelles et sécurisez votre compte 🔐
     </p>
 
-    <!-- ✉️ Email -->
     <label class="block">
       <span class="text-gray-700 font-medium">Email</span>
       <input
@@ -31,7 +27,6 @@
       />
     </label>
 
-    <!-- 🔑 Mot de passe -->
     <label class="block">
       <span class="text-gray-700 font-medium">Nouveau mot de passe</span>
       <input
@@ -46,7 +41,6 @@
       </label>
     </label>
 
-    <!-- ⚙️ Boutons -->
     <div class="space-y-3 pt-2">
       <button
         class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-lg font-semibold shadow-md transition"
@@ -63,9 +57,127 @@
       </button>
     </div>
 
-    <!-- 📨 Message -->
     <p *ngIf="message" class="text-center text-sm text-gray-600 mt-3">
       {{ message }}
     </p>
   </div>
+
+  <!-- ✅ ADMIN ONLY -->
+<div
+  *ngIf="isAdmin"
+  class="mt-10 bg-white/95 backdrop-blur-xl p-8 rounded-2xl shadow-2xl w-full max-w-4xl space-y-6 border border-white/20"
+>
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <h3 class="text-xl font-bold text-indigo-700">Gestion des comptes utilisateurs</h3>
+      <p class="text-gray-500 text-sm">Ajouter / supprimer des utilisateurs</p>
+    </div>
+
+    <button
+      class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold shadow transition"
+      (click)="onRefreshUsers()"
+    >
+      Rafraîchir
+    </button>
+  </div>
+
+  <!-- ➕ Ajouter -->
+  <div class="bg-gray-50 p-4 rounded-xl border">
+    <h4 class="font-semibold text-gray-700 mb-3">➕ Ajouter un utilisateur</h4>
+
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+      <input
+        class="p-2 border rounded-lg"
+        placeholder="Prénom"
+        aria-label="Prénom"
+        [(ngModel)]="newUser.prenom"
+        name="prenom"
+      />
+      <input
+        class="p-2 border rounded-lg"
+        placeholder="Nom"
+        aria-label="Nom"
+        [(ngModel)]="newUser.nom"
+        name="nom"
+      />
+      <input
+        class="p-2 border rounded-lg"
+        placeholder="Email"
+        aria-label="Email"
+        [(ngModel)]="newUser.email"
+        name="email"
+      />
+      <input
+        class="p-2 border rounded-lg"
+        placeholder="Mot de passe"
+        aria-label="Mot de passe"
+        [(ngModel)]="newUser.mot_de_passe"
+        name="mdp"
+        type="password"
+      />
+      <label class="sr-only" for="roleSelect">Rôle de l'utilisateur</label>
+    <select
+      id="roleSelect"
+      class="p-2 border rounded-lg"
+      [(ngModel)]="newUser.role"
+      name="role"
+    >
+  <option value="utilisateur">utilisateur</option>
+  <option value="admin">admin</option>
+</select>
+
+    </div>
+
+    <div class="mt-3 flex justify-end">
+      <button
+        class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold shadow transition"
+        (click)="onCreateUser()"
+      >
+        Ajouter
+      </button>
+    </div>
+  </div>
+
+  <!-- 📋 Tableau -->
+  <div class="overflow-x-auto">
+    <table class="w-full text-left border-collapse">
+      <thead>
+        <tr class="text-indigo-700 border-b">
+          <th class="py-3 px-2">Rôle</th>
+          <th class="py-3 px-2">Nom</th>
+          <th class="py-3 px-2">Prénom</th>
+          <th class="py-3 px-2">Email</th>
+          <th class="py-3 px-2 text-right">Actions</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        <tr *ngIf="loadingUsers">
+          <td colspan="5" class="py-4 text-center text-gray-500">Chargement...</td>
+        </tr>
+
+        <tr *ngFor="let u of users" class="border-b hover:bg-gray-50">
+          <td class="py-3 px-2 font-semibold">{{ u.role }}</td>
+          <td class="py-3 px-2">{{ u.nom }}</td>
+          <td class="py-3 px-2">{{ u.prenom }}</td>
+          <td class="py-3 px-2">{{ u.email }}</td>
+          <td class="py-3 px-2 text-right">
+            <button
+              class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-semibold shadow transition"
+              (click)="onDeleteUser(u)"
+            >
+              Supprimer
+            </button>
+          </td>
+        </tr>
+
+        <tr *ngIf="!loadingUsers && users.length === 0">
+          <td colspan="5" class="py-4 text-center text-gray-500">Aucun utilisateur.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
 </div>
