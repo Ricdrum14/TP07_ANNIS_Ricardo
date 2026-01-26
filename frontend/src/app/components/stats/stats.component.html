@@ -1,0 +1,152 @@
+<div class="min-h-screen bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 p-6">
+  <div class="max-w-6xl mx-auto flex flex-col gap-4">
+    <button
+      routerLink="/"
+      class="w-fit flex items-center gap-2 text-indigo-100 hover:text-white font-medium bg-white/10 hover:bg-white/20 px-4 py-2 rounded-full border border-white/30 backdrop-blur-md shadow transition-all duration-300"
+    >
+      <span>←</span>
+      Retour à l’accueil
+    </button>
+
+    <div class="bg-white/95 backdrop-blur-xl p-6 rounded-2xl shadow-2xl border border-white/20">
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-indigo-700">Statistiques</h2>
+          <p class="text-gray-500 text-sm">
+            Données issues des déclarations : calculs faits côté front, API inchangée.
+          </p>
+        </div>
+
+        <button
+          class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold shadow transition"
+          (click)="load()"
+        >
+          Rafraîchir
+        </button>
+      </div>
+
+      <div *ngIf="loading" class="mt-4 text-gray-600">Chargement...</div>
+      <div *ngIf="errorMsg" class="mt-4 text-red-600 font-medium">{{ errorMsg }}</div>
+
+      <!-- KPIs -->
+      <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="rounded-2xl border bg-white shadow p-5">
+          <div class="text-gray-500 text-sm">Total pollutions</div>
+          <div class="text-3xl font-bold text-indigo-700 mt-1">{{ total }}</div>
+        </div>
+
+        <div class="rounded-2xl border bg-white shadow p-5">
+          <div class="text-gray-500 text-sm">Dernière observation</div>
+          <div class="text-lg font-bold text-gray-800 mt-2">{{ lastObservationLabel }}</div>
+        </div>
+
+        <div class="rounded-2xl border bg-white shadow p-5">
+          <div class="text-gray-500 text-sm">Nombre de types</div>
+          <div class="text-3xl font-bold text-indigo-700 mt-1">{{ byType.length }}</div>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <!-- by type -->
+        <div class="rounded-2xl border bg-white shadow p-5">
+          <h3 class="text-lg font-bold text-indigo-700">Répartition par type</h3>
+          <p class="text-sm text-gray-500 mb-4">Top types + proportion</p>
+
+          <div *ngIf="byType.length === 0" class="text-gray-500 text-sm">Aucune donnée.</div>
+
+          <div class="space-y-3" *ngIf="byType.length > 0">
+            <div *ngFor="let row of byType" class="flex items-center gap-3">
+              <div class="w-36 text-sm font-medium text-gray-700 truncate">
+                {{ row.label }}
+              </div>
+
+              <div class="flex-1 h-3 rounded-full bg-gray-100 overflow-hidden">
+                <div class="h-3 bg-indigo-600" [style.width.%]="row.percent"></div>
+              </div>
+
+              <div class="w-16 text-right text-sm text-gray-700 font-semibold">
+                {{ row.count }} ({{ row.percent }}%)
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- last 7 days -->
+        <div class="bg-white rounded-2xl border shadow p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h3 class="text-lg font-bold text-indigo-700">7 derniers jours</h3>
+              <p class="text-gray-500 text-sm">Nombre de déclarations par jour</p>
+            </div>
+
+            <div class="text-sm text-gray-500">
+              Max: <b class="text-gray-800">{{ maxLast7 }}</b>
+            </div>
+          </div>
+
+          <!-- Chart -->
+          <div class="mt-4 flex items-end justify-between gap-2">
+            <div
+              *ngFor="let d of last7Days; let i = index"
+              class="flex flex-col items-center justify-end w-full"
+              [attr.title]="d.label + ' : ' + d.count"
+            >
+              <!-- conteneur de barre avec hauteur FIXE -->
+              <div class="h-28 w-full flex items-end justify-center">
+                <div
+                  class="w-8 md:w-10 rounded-xl bg-indigo-600 shadow origin-bottom
+                        transition-transform transition-[height] duration-700 ease-out"
+                  [class.scale-y-0]="loading"
+                  [style.height.%]="barHeight(d.percent, d.count)"
+                  [style.transitionDelay.ms]="i * 60"
+                ></div>
+              </div>
+
+              <!-- label -->
+              <div class="mt-2 text-[10px] text-gray-600 text-center leading-tight">
+                <div>{{ d.label }}</div>
+                <div class="font-semibold text-gray-800">{{ d.count }}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ✅ Moyennes sous le graphe (hors du *ngFor) -->
+          <div class="mt-4 pt-3 border-t flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div class="text-sm text-gray-600">
+              Moyenne (7 jours) :
+              <span class="font-bold text-gray-800">{{ avgLast7 }}</span> / jour
+            </div>
+
+            <div class="text-sm text-gray-600">
+              Moyenne (jours actifs) :
+              <span class="font-bold text-gray-800">{{ avgActiveLast7 }}</span> / jour
+            </div>
+          </div>
+        </div>
+
+        <!-- top lieux -->
+        <div class="rounded-2xl border bg-white shadow p-5 lg:col-span-2">
+          <h3 class="text-lg font-bold text-indigo-700">Top lieux</h3>
+          <p class="text-sm text-gray-500 mb-4">Lieux les plus signalés</p>
+
+          <div *ngIf="topLieux.length === 0" class="text-gray-500 text-sm">Aucune donnée.</div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3" *ngIf="topLieux.length > 0">
+            <div
+              *ngFor="let row of topLieux"
+              class="p-4 rounded-xl border bg-gray-50 flex items-center justify-between"
+            >
+              <div class="font-medium text-gray-800 truncate pr-3">{{ row.label }}</div>
+              <div class="text-indigo-700 font-bold">{{ row.count }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 text-xs text-gray-500">
+        Astuce : sur un nombre réduit de pollutions, les recherches et stats se font instantanément.
+      </div>
+    </div>
+  </div>
+</div>
